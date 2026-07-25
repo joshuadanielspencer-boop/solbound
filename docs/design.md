@@ -7,6 +7,25 @@ of the reason people can live out here at all.
 
 > *Everything is bound to Sol.*
 
+## Decisions locked 2026-07-25 (the Space Trader floor)
+
+Three forks settled, so the trade loop can be built against them:
+
+- **Two victory conditions, and they define the two modes.** A short **Run** is
+  bounded — a target fortune (Space Trader's "get rich and retire") under a
+  clock. The long **Campaign** is open-ended — sever Earth-dependency and become
+  infrastructure. These are not separate games: a Run is a Campaign with a
+  win-and-stop condition and a shorter charter. Same engine, same map, same
+  ships; the victory condition and the time cap are **data**, not code paths.
+- **The player is a customisable person** — a named captain with an avatar and
+  skills (Pilot / Trader / Engineer / Fighter, à la Space Trader), not a faceless
+  company. This adds a light RPG hook and a save to care about. The company grows
+  *around* the captain (§4's arc) rather than replacing them.
+- **The core loop is Space Trader's**, relocated onto the fleet orrery: check a
+  market, buy, pick a destination, cross real orbits under real windows,
+  encounter risk in transit, arrive, sell, upgrade, repeat. The transfer planner
+  and market panels already built as "labs" ARE two of this loop's screens.
+
 ---
 
 ## 0. How to read this
