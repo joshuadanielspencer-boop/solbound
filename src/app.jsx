@@ -51,7 +51,7 @@ function Home({ unknown }) {
     <div style={s.wrap}>
       <div style={s.inner}>
         <header style={s.header}>
-          <div style={s.logo}>SOL<span style={s.o}>☉</span>BOUND</div>
+          <img src={`${import.meta.env.BASE_URL}title-card.png`} alt="SOLBOUND" style={s.titleCard} />
           <p style={s.tagline}>An economic strategy game in the real solar system. The map is delta-v, not distance.</p>
           <p style={s.draft}>
             Early build. The systems below are real and tested; the game that ties them
@@ -90,9 +90,8 @@ const s = {
   wrap: { minHeight: "100%", background: "radial-gradient(1200px 600px at 50% -10%, #12203a 0%, var(--bg) 60%)" },
   inner: { maxWidth: 960, margin: "0 auto", padding: "60px 22px 80px" },
   header: { textAlign: "center", marginBottom: 40 },
-  logo: { fontSize: 44, fontWeight: 800, letterSpacing: 6, color: "var(--gold)" },
-  o: { color: "var(--gold)", fontSize: 40 },
-  tagline: { fontSize: 16, color: "#CDD5E4", margin: "12px 0 0", lineHeight: 1.5 },
+  titleCard: { width: "100%", maxWidth: 620, height: "auto", display: "block", margin: "0 auto" },
+  tagline: { fontSize: 16, color: "#CDD5E4", margin: "4px 0 0", lineHeight: 1.5 },
   draft: { fontSize: 12.5, color: "var(--muted)", maxWidth: 620, margin: "18px auto 0", lineHeight: 1.6,
     background: "rgba(228,113,63,0.10)", border: "1px solid rgba(228,113,63,0.35)", borderRadius: 8, padding: "10px 14px" },
   unknown: { textAlign: "center", color: "var(--hot)", marginBottom: 18, fontSize: 14 },
