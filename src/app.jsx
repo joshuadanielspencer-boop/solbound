@@ -16,10 +16,12 @@ import RocketLab from "./labs/rocket.jsx";
 import MarketLab from "./labs/market.jsx";
 import DayNightLab from "./labs/daynight.jsx";
 import TransferLab from "./labs/transfer.jsx";
+import Trader from "./trader/index.jsx";
 
 const ROUTES = {
-  play:     { comp: Wanderer,    title: "The fleet", blurb: "Fly three ships across a live solar system: launch windows, real transfer orbits, the day/night terminator, and the survey game. The playable build.", emoji: "🛰", tag: "playable" },
-  rocket:   { comp: RocketLab,   title: "The rocket equation", blurb: "Drag the velocity change and watch the fuel cost explode. Why 'far' and 'hard' are different words — and why the torch drive is fiction.", emoji: "🚀", tag: "physics" },
+  play:     { comp: Trader,      title: "SOLBOUND — the trade game", blurb: "Take command of a captain and one ship. Buy where a good is cheap, cross real orbits at a real fuel-and-time cost, sell where it's dear. The Space Trader floor, on the real solar system.", emoji: "🚀", tag: "playable" },
+  fleet:    { comp: Wanderer,    title: "The fleet (survey demo)", blurb: "The earlier build: fly three ships across a live solar system with launch windows, real transfer orbits, the day/night terminator, and the survey game.", emoji: "🛰", tag: "demo" },
+  rocket:   { comp: RocketLab,   title: "The rocket equation", blurb: "Drag the velocity change and watch the fuel cost explode. Why 'far' and 'hard' are different words — and why the torch drive is fiction.", emoji: "🧮", tag: "physics" },
   transfer: { comp: TransferLab, title: "Transfer planner", blurb: "Pick two worlds and a date. See the launch-window geometry, what leaving now costs, and when the cheap window opens.", emoji: "🪐", tag: "physics" },
   daynight: { comp: DayNightLab, title: "Day, night & seasons", blurb: "What 'the terminator' is: the day/night line, sweeping each world at its real day length. Mars is 24h 39m; Venus's day is longer than its year.", emoji: "🌓", tag: "physics" },
   market:   { comp: MarketLab,   title: "Trade & the ISRU lesson", blurb: "Two markets, live prices, and the split the physics forces: what's worth shipping across the solar system, and what you must make where you stand.", emoji: "📦", tag: "economy" },
@@ -46,7 +48,7 @@ export default function App() {
 
 function Home({ unknown }) {
   useEffect(() => { document.title = "SOLBOUND — Systems"; }, []);
-  const tagColor = { playable: "var(--gold)", physics: "#7FB2CE", economy: "#3E9B6E" };
+  const tagColor = { playable: "var(--gold)", physics: "#7FB2CE", economy: "#3E9B6E", demo: "var(--muted)" };
   return (
     <div style={s.wrap}>
       <div style={s.inner}>

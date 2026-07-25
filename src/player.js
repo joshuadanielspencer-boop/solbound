@@ -45,6 +45,7 @@ export function newPlayer({ name, skills, avatar = null, hull = STARTER_HULL, mo
     ship: {
       hull,
       modules,
+      drive: "methalox",   // the starter engine; better drives are bought/unlocked later
       name: shipName(name),
       fuelTonnes: fittedStats(hull, modules).fuelTonnes,  // start with a full tank
     },
