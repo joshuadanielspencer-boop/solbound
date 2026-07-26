@@ -27,6 +27,7 @@ export const SITES = [
   {
     id: "leo", name: "Gateway Station", body: "earth", system: "earth",
     kind: "orbital", population: 400, owner: "consortium",
+    techLevel: 7,
     why: "Low Earth orbit: the top of the deepest gravity well anyone routinely climbs. "
        + "Everything from Earth passes through here, which is exactly why it is expensive.",
     produces: [],
@@ -39,6 +40,7 @@ export const SITES = [
   {
     id: "shackleton", name: "Shackleton Base", body: "luna", system: "earth",
     kind: "surface", population: 90, owner: "consortium",
+    techLevel: 4,
     why: "The lunar south pole. Crater floors here have not seen sunlight in two billion years, "
        + "so water ice survives in them — while the crater RIM gets almost continuous sun for power. "
        + "Ice and sunlight within a few miles of each other is why this specific spot matters.",
@@ -54,6 +56,7 @@ export const SITES = [
   {
     id: "phobos-depot", name: "Phobos Depot", body: "phobos", system: "mars",
     kind: "orbital", population: 25, owner: "corporate",
+    techLevel: 4,
     why: "Phobos has effectively no gravity well — you land and leave for almost nothing. "
        + "That makes it the cheapest place in the Mars system to keep fuel, and possibly "
        + "the best depot in the inner solar system.",
@@ -67,6 +70,7 @@ export const SITES = [
   {
     id: "jezero-station", name: "Jezero Station", body: "mars", system: "mars",
     kind: "surface", population: 210, owner: "agency",
+    techLevel: 5,
     why: "Beside a dried river delta, where water once pooled. Subsurface ice, clay minerals, "
        + "and an atmosphere that is 95% CO₂ — which a machine can turn into oxygen and methane. "
        + "Mars is the only place off Earth where a colony can make its own fuel from the air.",
@@ -82,6 +86,7 @@ export const SITES = [
   {
     id: "ceres-port", name: "Ceres Port", body: "ceres", system: "belt",
     kind: "surface", population: 140, owner: "independent",
+    techLevel: 3,
     why: "Ceres is roughly a quarter water by mass and its escape velocity is about 510 m/s — "
        + "you can practically walk off it. Far from the Sun, and yet cheaper to land on and "
        + "leave than our own Moon. 'Far' and 'hard' are different words, and Ceres is the proof.",
@@ -95,6 +100,7 @@ export const SITES = [
   {
     id: "psyche-works", name: "Psyche Works", body: "psyche", system: "belt",
     kind: "surface", population: 60, owner: "corporate",
+    techLevel: 3,
     why: "An asteroid that appears to be largely exposed metal — possibly the stripped core of "
        + "a shattered protoplanet. Iron and nickel at the surface, no digging required.",
     produces: ["ore", "metal", "regolith"],
@@ -109,6 +115,7 @@ export const SITES = [
   {
     id: "callisto-station", name: "Callisto Station", body: "callisto", system: "jupiter",
     kind: "surface", population: 45, owner: "agency",
+    techLevel: 2,
     why: "The only Galilean moon far enough out to sit mostly clear of Jupiter's radiation belt. "
        + "Io is bathed in a dose that would kill a person in a day; Callisto is survivable. "
        + "That single fact is why crewed-Jupiter studies keep choosing this moon and no other.",
@@ -131,3 +138,42 @@ export const OWNERS = {
   corporate:   { name: "Kestrel Industrial", note: "Extraction and logistics, and no patience at all." },
   independent: { name: "Independent",        note: "Settled by the people who work there." },
 };
+
+/**
+ * TECH LEVEL — how developed a port is, 1 (a scratched-out camp) to 7 (Earth's
+ * full industrial base, one lift away). Space Trader's central "what can you get
+ * here" axis. For now it is the character of a place and gates what its industry
+ * can make; when the shipyard lands it will gate which HULLS and MODULES are for
+ * sale, exactly as the original did (better ships only at higher-tech ports).
+ */
+export const TECH_LEVELS = [
+  null,
+  { n: 1, name: "Outpost",     note: "A foothold. Survival, and not much else." },
+  { n: 2, name: "Frontier",    note: "A working settlement scraping a living from the local rock." },
+  { n: 3, name: "Established",  note: "Real industry — refining, fabrication, a proper port." },
+  { n: 4, name: "Developed",   note: "Makes most of what it needs, and ships the surplus." },
+  { n: 5, name: "Advanced",    note: "Heavy industry and its own research." },
+  { n: 6, name: "Cutting-edge", note: "Builds what others import." },
+  { n: 7, name: "Core",        note: "Earth's full industrial base within reach." },
+];
+
+/**
+ * GOVERNMENT — who makes the rules at a port, keyed by its owner. Sets the
+ * tariff (a cut on trade), how hard the law is enforced (`law`, 0..1 — feeds the
+ * inspection encounters when they land), and the name of the local paper (for
+ * the news feed). Descriptive today; the tariff and law wire into pricing and
+ * enforcement as those systems arrive, so this is the hook, not dead flavour.
+ */
+export const GOVERNMENTS = {
+  consortium:  { type: "Corporate charter", tariff: 0.12, law: 0.7, paper: "The Orbital Ledger",
+    note: "Corporate order — trade is free but taxed, and the rules are enforced." },
+  agency:      { type: "Public administration", tariff: 0.05, law: 0.85, paper: "The Agency Bulletin",
+    note: "Low tariffs, strict oversight, and thorough inspections." },
+  corporate:   { type: "Company town", tariff: 0.15, law: 0.5, paper: "The Kestrel Dispatch",
+    note: "High margins for the company, light law for everyone else." },
+  independent: { type: "Free port", tariff: 0.03, law: 0.3, paper: "The Free Signal",
+    note: "Nobody's in charge — cheap to trade, and you watch your own back." },
+};
+
+export const techOf = (site) => TECH_LEVELS[site?.techLevel] || TECH_LEVELS[3];
+export const govOf = (site) => GOVERNMENTS[site?.owner] || GOVERNMENTS.independent;

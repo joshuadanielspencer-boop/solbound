@@ -18,6 +18,7 @@ import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
 import { runPlan, cargoValueAt } from "../intel.js";
+import { systemInfo, generateNews } from "../worldinfo.js";
 import { makeSave, serialize } from "../save.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
@@ -245,12 +246,15 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
   return (
     <div style={{ overflowY: "auto" }}>
       <div style={S.siteName}>{site.name}</div>
+      <SystemInfoBlock game={game} siteId={p.at} />
       {control && (
         <div style={S.faction}>
           <b>{control.faction.name}</b> holds this port. {control.faction.blurb}
         </div>
       )}
       <div style={S.why}>{site.why}</div>
+
+      <Newspaper game={game} />
 
       <div style={S.fuelBox}>
         <div style={S.fuelHead}>
@@ -369,6 +373,54 @@ function Travel({ game, dest, setDest, onGo }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// System Info — the character of a port (tech, government, danger, pressure).
+// ---------------------------------------------------------------------------
+function SystemInfoBlock({ game, siteId }) {
+  const info = systemInfo(game, siteId);
+  if (!info) return null;
+  const dTone = { Safe: "#3E9B6E", Settled: "#3E9B6E", Unsettled: "var(--gold)", Dangerous: "var(--hot)" }[info.dangerWord] || "var(--muted)";
+  return (
+    <div style={S.sysinfo}>
+      <div style={S.sysRow}>
+        <span style={S.sysChip}>{info.tech.name}</span>
+        <span style={S.sysChip}>{info.gov.type}</span>
+        <span style={{ ...S.sysChip, color: dTone, borderColor: dTone }}>{info.dangerWord}</span>
+        <span style={S.sysPop}>pop. {info.population.toLocaleString()}</span>
+      </div>
+      <div style={S.sysPressure}>{info.pressure}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The local newspaper — the "why go far" signal, drawn from factions + markets.
+// ---------------------------------------------------------------------------
+function Newspaper({ game }) {
+  const [open, setOpen] = useState(true);
+  const news = generateNews(game);
+  if (!news.items.length) return null;
+  const tone = { crisis: "var(--hot)", danger: "var(--hot)", opportunity: "#3E9B6E", market: "var(--gold)" };
+  return (
+    <div style={S.paper}>
+      <button style={S.paperHead} onClick={() => setOpen((v) => !v)}>
+        <span>📰 {news.paper}</span>
+        <span style={S.paperToggle}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={S.paperBody}>
+          {news.items.map((it, i) => (
+            <div key={i} style={S.headline}>
+              <span style={{ color: tone[it.kind] || "var(--muted)" }}>▍</span> {it.headline}
+            </div>
+          ))}
+          <div style={S.paperNote}>{news.reachNote}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -520,7 +572,18 @@ const S = {
   hr: { height: 1, background: "var(--line)", margin: "16px 0" },
 
   siteName: { fontSize: 19, fontWeight: 700, padding: "16px 18px 4px" },
+  sysinfo: { padding: "0 18px 8px" },
+  sysRow: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 5 },
+  sysChip: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 10, padding: "2px 8px" },
+  sysPop: { fontSize: 11.5, color: "var(--muted)", marginLeft: "auto" },
+  sysPressure: { fontSize: 12.5, color: "#CDD5E4", lineHeight: 1.5 },
   faction: { margin: "0 18px 8px", padding: "9px 12px", background: "rgba(242,180,65,0.08)", border: "1px solid rgba(242,180,65,0.35)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.5 },
+  paper: { margin: "0 18px 12px", border: "1px solid var(--line)", borderRadius: 9, overflow: "hidden", background: "#0B111C" },
+  paperHead: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "var(--panel-2)", border: "none", cursor: "pointer", color: "var(--text)", fontSize: 13, fontWeight: 600 },
+  paperToggle: { color: "var(--muted)" },
+  paperBody: { padding: "8px 12px 10px" },
+  headline: { fontSize: 12.5, lineHeight: 1.5, padding: "4px 0", color: "#DCE3F0" },
+  paperNote: { fontSize: 11, color: "var(--muted)", fontStyle: "italic", marginTop: 6 },
   why: { fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, padding: "0 18px 14px" },
   fuelBox: { margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
   fuelHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 8 },
