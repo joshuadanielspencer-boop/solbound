@@ -1,25 +1,25 @@
 // ===========================================================================
-// THE TRADE GAME — play screen. Space Trader's loop on the real solar system.
+// THE TRADE GAME — play screen. Now on the fleet's LIVING clock.
 //
-// Left: the orrery, planets where they really are on the mission date, the
-// player's site ringed, and a real Kepler-solved arc to whatever destination is
-// being considered. Right: the dock (buy, sell, refuel at the current site) and
-// the course plotter (where can I go, what does it cost in fuel and months).
-//
-// The screens the "labs" prototyped are now doing their real job: the market
-// panel is the dock, the transfer maths is the course cost.
+// The merge (design.md): the trade loop had abandoned the animated orrery, the
+// ship-on-the-map and the pause-for-decisions rhythm that made the fleet good.
+// This puts them back. You plot a course, LAUNCH, and watch your ship cross the
+// real transfer arc while the planets move; the clock pauses itself on arrival
+// and the dock opens. Time you can hurry, slow, or skip — but never fake.
 // ===========================================================================
 import { useEffect, useMemo, useState } from "react";
-import { heliocentric, periodDays } from "../ephemeris.js";
-import { project, orbitPath } from "../orrery.js";
+import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
+import { project, orbitPath, sayLightTime } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
 import { SYSTEMS, SYSTEM_BY_ID } from "../data/bodies.js";
 import { SITE_BY_ID } from "../data/sites.js";
 import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
+import { factionAt } from "../factions.js";
 import {
-  travelCost, destinations, travel, refuel, fuelPrice, buy, sell, tankMax,
+  travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
+  buy, sell, tankMax, RATES,
 } from "../tradergame.js";
 
 const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
@@ -29,21 +29,49 @@ const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44
 const dot = (rkm, k = 1) => Math.max(4, Math.min(22, Math.pow(rkm || 1000, 0.25) * 1.25)) * k;
 
 export default function Play({ game, setGame, onQuit }) {
-  const [mode, setMode] = useState("dock");       // "dock" | "travel"
-  const [dest, setDest] = useState(null);          // hovered/selected destination siteId
-  const [sel, setSel] = useState(null);            // selected commodity in the dock
+  const [mode, setMode] = useState("dock");
+  const [dest, setDest] = useState(null);
+  const [sel, setSel] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const p = game.player;
-  const site = SITE_BY_ID[p.at];
-  const sys = SYSTEM_BY_ID[site.system];
+  const flash = (text, kind = "ok") => setToast({ text, kind });
+  const transit = game.status === "transit";
+
+  // ---- the living clock ---------------------------------------------------
+  // setInterval, not requestAnimationFrame: rAF is throttled to zero in a hidden
+  // tab, which would silently freeze the game whenever the player looked away.
+  // dt is measured from the wall clock, so a stalled tab slows the sim rather
+  // than desynchronising it. The clock only runs while in transit.
+  useEffect(() => {
+    if (!transit || RATES[game.rateIdx].days === 0) return;
+    let last = performance.now();
+    const id = setInterval(() => {
+      const now = performance.now();
+      const dt = Math.min(150, now - last);
+      last = now;
+      setGame((g) => {
+        if (g.status !== "transit") return g;
+        const r = advanceTime(g, g.t + RATES[g.rateIdx].days * (dt / 1000) * DAY);
+        if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
+        return r.game;
+      });
+    }, 33);
+    return () => clearInterval(id);
+  }, [transit, game.rateIdx]);
+
+  const setRate = (i) => setGame((g) => ({ ...g, rateIdx: i }));
+  const skip = () => setGame((g) => {
+    if (g.status !== "transit") return g;
+    const r = advanceTime(g, g.leg.arriveT);
+    if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
+    return { ...r.game, rateIdx: 0 };
+  });
 
   const positions = useMemo(() => {
     const o = {};
     for (const s of SYSTEMS) if (s.ephemerisKey) o[s.id] = heliocentric(s.ephemerisKey, new Date(game.t));
     return o;
   }, [game.t]);
-
   const orbits = useMemo(() => {
     const o = {};
     for (const s of SYSTEMS) {
@@ -54,34 +82,37 @@ export default function Play({ game, setGame, onQuit }) {
     return o;
   }, []);
 
-  const flash = (text, kind = "ok") => setToast({ text, kind });
-
-  const doTravel = (destId) => {
-    const r = travel(game, destId);
+  const doLaunch = (destId) => {
+    const r = launch(game, destId);
     if (r.error) return flash(r.reason || r.error, "bad");
-    setGame(r.game); setDest(null); setSel(null); setMode("dock");
-    flash(`Arrived at ${r.arrived} — ${fmtDur(r.days)}, ${r.spentFuel.toFixed(1)} t of propellant burned.`);
+    setGame(r.game); setDest(null); setSel(null);
+    flash(`Under way to ${SITE_BY_ID[destId].name}. Run the clock.`);
   };
-
   const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
   const doSell = (id, qty) => { const r = sell(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Sold ${r.sold} t of ${COMMODITY_BY_ID[id].name} for ${money(r.earned)}.`); };
   const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
 
   return (
     <div style={S.app}>
-      <Hud game={game} onQuit={onQuit} />
+      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} />
       <div style={S.main}>
         <div style={S.stage}>
           <Orrery positions={positions} orbits={orbits} game={game} dest={dest} />
         </div>
         <aside style={S.panel} aria-live="polite">
-          <div style={S.tabs}>
-            <button style={{ ...S.tab, ...(mode === "dock" ? S.tabOn : null) }} onClick={() => setMode("dock")}>⚓ Dock</button>
-            <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Plot a course</button>
-          </div>
-          {mode === "dock"
-            ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
-            : <Travel game={game} dest={dest} setDest={setDest} onGo={doTravel} />}
+          {transit ? (
+            <TransitPanel game={game} />
+          ) : (
+            <>
+              <div style={S.tabs}>
+                <button style={{ ...S.tab, ...(mode === "dock" ? S.tabOn : null) }} onClick={() => setMode("dock")}>⚓ Dock</button>
+                <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Plot a course</button>
+              </div>
+              {mode === "dock"
+                ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
+                : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
+            </>
+          )}
         </aside>
       </div>
       {toast && <Toast toast={toast} onDone={() => setToast(null)} />}
@@ -90,25 +121,24 @@ export default function Play({ game, setGame, onQuit }) {
 }
 
 const errMsg = (e) => ({
-  "not-sold-here": "This site doesn't trade that.",
-  "out-of-stock": "None left to buy here.",
-  "hold-full": "The hold is full.",
-  "no-credits": "Not enough credits.",
-  "none-to-sell": "You have none aboard.",
+  "not-sold-here": "This site doesn't trade that.", "out-of-stock": "None left to buy here.",
+  "hold-full": "The hold is full.", "no-credits": "Not enough credits.", "none-to-sell": "You have none aboard.",
 }[e] || e);
 
 // ---------------------------------------------------------------------------
-// HUD
+// HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit }) {
+function Hud({ game, onQuit, setRate, skip }) {
   const p = game.player;
-  const site = SITE_BY_ID[p.at];
+  const transit = game.status === "transit";
+  const here = SITE_BY_ID[p.at];
+  const where = transit ? `en route to ${SITE_BY_ID[game.leg.to]?.name}` : `docked at ${here.name}`;
   return (
     <header style={S.hud}>
-      <a href="#/" style={S.homeBtn} title="All systems" aria-label="Back to all systems">☰</a>
+      <a href="#/" style={S.homeBtn} title="Menu" aria-label="Menu">☰</a>
       <div>
         <div style={S.capName}>{p.name}</div>
-        <div style={S.sub}>{p.ship.name} · docked at {site.name}</div>
+        <div style={S.sub}>{p.ship.name} · {where}</div>
       </div>
       <div style={S.hudStats}>
         <Hstat label="Credits" value={money(p.credits)} tone="gold" />
@@ -118,19 +148,67 @@ function Hud({ game, onQuit }) {
           tone={p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined} />
         <Hstat label="Date" value={fmtDate(game.t)} />
       </div>
-      <button style={S.quit} onClick={onQuit}>Abandon</button>
+      {transit ? (
+        <div style={S.clock}>
+          {RATES.map((r, i) => (
+            <button key={i} onClick={() => setRate(i)} aria-pressed={game.rateIdx === i} title={r.name}
+              style={{ ...S.rateBtn, ...(game.rateIdx === i ? S.rateOn : null) }}>{r.label}</button>
+          ))}
+          <button onClick={skip} style={S.skipBtn} title="Skip to arrival">⏭</button>
+        </div>
+      ) : (
+        <button style={S.quit} onClick={onQuit}>Menu</button>
+      )}
     </header>
   );
 }
 const Hstat = ({ label, value, tone }) => (
-  <div style={{ minWidth: 92 }}>
+  <div style={{ minWidth: 90 }}>
     <div style={S.hlabel}>{label}</div>
     <div style={{ ...S.hvalue, color: tone === "gold" ? "var(--gold)" : tone === "hot" ? "var(--hot)" : "var(--text)" }}>{value}</div>
   </div>
 );
 
 // ---------------------------------------------------------------------------
-// The dock — buy, sell, refuel
+// Transit panel — what you see while flying
+// ---------------------------------------------------------------------------
+function TransitPanel({ game }) {
+  const leg = game.leg;
+  const from = SITE_BY_ID[leg.from], to = SITE_BY_ID[leg.to];
+  const f = Math.max(0, Math.min(1, (game.t - leg.departT) / (leg.arriveT - leg.departT)));
+  const remainDays = Math.max(0, (leg.arriveT - game.t) / DAY);
+  // How long a message home would take from here — the loneliness curve, live.
+  const toSys = SYSTEM_BY_ID[to.system];
+  const lag = toSys?.ephemerisKey ? lightTimeSeconds("earth", toSys.ephemerisKey, new Date(game.t)) : 0;
+  return (
+    <div style={{ padding: "20px 18px" }}>
+      <div style={S.transitHead}>Under way</div>
+      <div style={S.route}>{from.name} <span style={S.arrow}>→</span> {to.name}</div>
+      <div style={S.progressTrack}><div style={{ ...S.progressFill, width: `${f * 100}%` }} /></div>
+      <div style={S.small}>{Math.round(f * 100)}% · arriving {fmtDate(leg.arriveT)} · {fmtDur(remainDays)} to go</div>
+
+      <div style={S.hr} />
+      <Row label="Time under way" value={fmtDur((game.t - leg.departT) / DAY)} />
+      <Row label="Propellant burned" value={`${leg.fuelCost.toFixed(1)} t`} />
+      <Row label="A message home takes" value={lag ? sayLightTime(lag) : "—"} hint="one way, at the speed of light" />
+      <p style={{ ...S.small, marginTop: 16 }}>
+        The clock is running (top right). Speed it up, or skip straight to arrival.
+        The market you're headed for is drifting while you fly — the prices won't be
+        quite what you saw at departure.
+      </p>
+    </div>
+  );
+}
+const Row = ({ label, value, hint }) => (
+  <div style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+    <div style={S.hlabel}>{label}</div>
+    <div style={{ fontSize: 15, fontWeight: 600 }}>{value}</div>
+    {hint && <div style={S.small}>{hint}</div>}
+  </div>
+);
+
+// ---------------------------------------------------------------------------
+// Dock
 // ---------------------------------------------------------------------------
 function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
   const p = game.player;
@@ -139,13 +217,18 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
   const rows = listing(market, site);
   const fp = fuelPrice(game);
   const tank = tankMax(p), tankFreeT = tank - p.ship.fuelTonnes;
+  const control = factionAt(game.factions, site.id);
 
   return (
-    <div>
+    <div style={{ overflowY: "auto" }}>
       <div style={S.siteName}>{site.name}</div>
+      {control && (
+        <div style={S.faction}>
+          <b>{control.faction.name}</b> holds this port. {control.faction.blurb}
+        </div>
+      )}
       <div style={S.why}>{site.why}</div>
 
-      {/* Refuel */}
       <div style={S.fuelBox}>
         <div style={S.fuelHead}>
           <span><b>Propellant</b> {fp ? `· ${money(fp)}/t here` : "· not sold here"}</span>
@@ -160,17 +243,16 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
       </div>
 
       <div style={S.marketHead}>Market</div>
-      <div style={S.marketList}>
+      <div style={{ padding: "0 12px 16px" }}>
         {rows.map((r) => {
           const held = p.cargo[r.id] || 0;
-          const bp = buyPrice(p, market, site, r.id);
-          const sp = sellPrice(p, market, site, r.id);
+          const bp = buyPrice(p, market, site, r.id), sp = sellPrice(p, market, site, r.id);
           const on = sel === r.id;
           return (
             <div key={r.id}>
               <button style={{ ...S.mrow, ...(on ? S.mrowOn : null) }} onClick={() => setSel(on ? null : r.id)}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span>{r.produces ? "⛏ " : r.consumes ? "▾ " : ""}{r.name}
+                  <span>{r.produces ? "◆ " : r.consumes ? "○ " : ""}{r.name}
                     {held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
                   <span style={S.tierTag}>{TIERS[r.tier].name} · {r.state}</span>
                 </div>
@@ -179,8 +261,7 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
                   <div style={S.sellP}>sell {money(sp)}</div>
                 </div>
               </button>
-              {on && <TradeBar row={r} held={held} bp={bp} sp={sp} free={cargoFree(p)}
-                credits={p.credits} onBuy={onBuy} onSell={onSell} />}
+              {on && <TradeBar row={r} held={held} bp={bp} sp={sp} free={cargoFree(p)} credits={p.credits} onBuy={onBuy} onSell={onSell} />}
             </div>
           );
         })}
@@ -204,10 +285,8 @@ function TradeBar({ row, held, bp, sp, free, credits, onBuy, onSell }) {
           <button style={S.stepBtn} onClick={() => setQty(Math.max(1, maxBuy))} title="As many as you can afford and hold">max</button>
         </div>
         <div style={S.row}>
-          <button style={{ ...S.buyBtn, opacity: maxBuy > 0 ? 1 : 0.4 }} disabled={maxBuy <= 0}
-            onClick={() => onBuy(row.id, q)}>Buy</button>
-          <button style={{ ...S.sellBtn, opacity: held > 0 ? 1 : 0.4 }} disabled={held <= 0}
-            onClick={() => onSell(row.id, Math.min(q, held))}>Sell</button>
+          <button style={{ ...S.buyBtn, opacity: maxBuy > 0 ? 1 : 0.4 }} disabled={maxBuy <= 0} onClick={() => onBuy(row.id, q)}>Buy</button>
+          <button style={{ ...S.sellBtn, opacity: held > 0 ? 1 : 0.4 }} disabled={held <= 0} onClick={() => onSell(row.id, Math.min(q, held))}>Sell</button>
         </div>
       </div>
       {row.lesson && <div style={S.lesson}>{row.lesson}</div>}
@@ -216,40 +295,38 @@ function TradeBar({ row, held, bp, sp, free, credits, onBuy, onSell }) {
 }
 
 // ---------------------------------------------------------------------------
-// The course plotter
+// Course plotter
 // ---------------------------------------------------------------------------
 function Travel({ game, dest, setDest, onGo }) {
   const list = destinations(game).sort((a, b) => (a.cost?.days ?? 1e9) - (b.cost?.days ?? 1e9));
   return (
-    <div>
+    <div style={{ overflowY: "auto" }}>
       <div style={S.siteName}>Where to?</div>
-      <div style={S.why}>Cost is propellant and months. A heavier hold burns more; the outer system needs a bigger tank or a better drive.</div>
+      <div style={S.why}>Cost is propellant and months. A heavier hold burns more; the outer system needs a bigger tank or a better drive. Once you launch, run the clock to fly there.</div>
       {list.map(({ site, cost }) => {
         if (!cost) return null;
-        const on = dest === site.id;
-        const ok = cost.reachable && cost.enoughFuel;
+        const on = dest === site.id, ok = cost.reachable && cost.enoughFuel;
+        const control = factionAt(game.factions, site.id);
         return (
           <div key={site.id} style={{ ...S.destCard, ...(on ? S.destOn : null), opacity: cost.reachable ? 1 : 0.55 }}
             onMouseEnter={() => setDest(site.id)}>
             <button style={S.destBtn} onClick={() => setDest(on ? null : site.id)}>
-              <div style={S.row2}>
-                <b>{site.name}</b>
-                <span style={S.destSys}>{SYSTEM_BY_ID[site.system]?.name}</span>
-              </div>
+              <div style={S.row2}><b>{site.name}</b><span style={S.destSys}>{SYSTEM_BY_ID[site.system]?.name}</span></div>
               <div style={S.destMeta}>
                 {cost.fuelTonnes.toFixed(0)} t fuel · {fmtDur(cost.days)}
                 {!cost.reachable && <span style={S.tooFar}> · out of range</span>}
                 {cost.reachable && !cost.enoughFuel && <span style={S.tooFar}> · refuel first</span>}
+                {control && <span style={S.destFaction}> · {control.faction.name}</span>}
               </div>
             </button>
             {on && (
               <div style={S.destOpen}>
                 <div style={S.small}>{site.why}</div>
-                {cost.reachable ? (
-                  <button style={{ ...S.goBtn, opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={() => onGo(site.id)}>
-                    {ok ? `Launch — burn ${cost.fuelTonnes.toFixed(1)} t` : "Not enough fuel aboard"}
-                  </button>
-                ) : <div style={S.warnLine}>{cost.reason}</div>}
+                {cost.reachable
+                  ? <button style={{ ...S.goBtn, opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={() => onGo(site.id)}>
+                      {ok ? `Launch — burn ${cost.fuelTonnes.toFixed(1)} t` : "Not enough fuel aboard"}
+                    </button>
+                  : <div style={S.warnLine}>{cost.reason}</div>}
               </div>
             )}
           </div>
@@ -260,52 +337,65 @@ function Travel({ game, dest, setDest, onGo }) {
 }
 
 // ---------------------------------------------------------------------------
-// The orrery
+// Orrery — with the player ship on it
 // ---------------------------------------------------------------------------
 function Orrery({ positions, orbits, game, dest }) {
   const opts = { cx: CX, cy: CY, radius: R, trueScale: false };
   const hereSys = SITE_BY_ID[game.player.at]?.system;
-  const destSys = dest && SITE_BY_ID[dest]?.system;
+  const transit = game.status === "transit";
+  const destSys = transit ? SITE_BY_ID[game.leg.to]?.system : (dest && SITE_BY_ID[dest]?.system);
 
-  // The transfer arc, if a destination in another system is being considered.
-  let arc = null;
-  if (destSys && destSys !== hereSys) {
+  // The arc: the actual leg while flying, or a preview to a considered target.
+  let arc = null, legR1, legR2, legLon1;
+  if (transit) { ({ r1: legR1, r2: legR2, lon1: legLon1 } = game.leg); }
+  else if (destSys && destSys !== hereSys) {
     const a = SYSTEM_BY_ID[hereSys], b = SYSTEM_BY_ID[destSys];
     if (a?.ephemerisKey && b?.ephemerisKey) {
-      const p1 = positions[a.ephemerisKey === "ceres" ? "belt" : hereSys] || heliocentric(a.ephemerisKey, new Date(game.t));
+      const p1 = positions[hereSys] || heliocentric(a.ephemerisKey, new Date(game.t));
       const p2 = positions[destSys] || heliocentric(b.ephemerisKey, new Date(game.t));
-      const pts = Array.from({ length: 40 }, (_, i) => transferPosition(p1.r, p2.r, p1.lon, i / 39));
-      arc = pts.map((pt, i) => { const q = project(pt.r, pt.lon, opts); return `${i ? "L" : "M"} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }).join(" ");
+      legR1 = p1.r; legR2 = p2.r; legLon1 = p1.lon;
     }
   }
+  if (legR1 != null) {
+    const pts = Array.from({ length: 44 }, (_, i) => transferPosition(legR1, legR2, legLon1, i / 43));
+    arc = pts.map((pt, i) => { const q = project(pt.r, pt.lon, opts); return `${i ? "L" : "M"} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }).join(" ");
+  }
+
+  const ship = transit ? shipPosition(game) : null;
+  const shipXY = ship ? project(ship.r, ship.lon, opts) : null;
 
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img" aria-label="The solar system on the mission date">
-      <defs>
-        <radialGradient id="sun"><stop offset="0%" stopColor="#FFD98A" stopOpacity="0.9" /><stop offset="60%" stopColor="#F2B441" stopOpacity="0.1" /><stop offset="100%" stopColor="#F2B441" stopOpacity="0" /></radialGradient>
-      </defs>
+      <defs><radialGradient id="sun"><stop offset="0%" stopColor="#FFD98A" stopOpacity="0.9" /><stop offset="60%" stopColor="#F2B441" stopOpacity="0.1" /><stop offset="100%" stopColor="#F2B441" stopOpacity="0" /></radialGradient></defs>
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => (
         <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.5" />
       ))}
       <circle cx={CX} cy={CY} r="90" fill="url(#sun)" /><circle cx={CX} cy={CY} r="11" fill="#F2B441" />
-      {arc && <path d={arc} fill="none" stroke="var(--gold)" strokeWidth="2" strokeDasharray="5 6" />}
+      {arc && <path d={arc} fill="none" stroke="var(--gold)" strokeWidth="2" strokeDasharray="5 6" strokeOpacity={transit ? 0.9 : 0.6} />}
 
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => {
         const pos = positions[s.id]; const { x, y } = project(pos.r, pos.lon, opts);
-        const here = s.id === hereSys || (hereSys === "belt" && s.id === "belt");
-        const isDest = s.id === destSys;
+        const here = s.id === hereSys, isDest = s.id === destSys;
         const r = dot(s.radiusKm, s.id === "pluto" ? 1.3 : 1);
+        const held = game.factions?.some((fx) => SITE_BY_ID[fx.siteId]?.system === s.id);
         return (
           <g key={s.id}>
-            {here && <circle cx={x} cy={y} r={r + 12} fill="none" stroke="#F2B441" strokeWidth="1.5" strokeDasharray="3 4" />}
+            {here && !transit && <circle cx={x} cy={y} r={r + 12} fill="none" stroke="#F2B441" strokeWidth="1.5" strokeDasharray="3 4" />}
             {isDest && <circle cx={x} cy={y} r={r + 9} fill="none" stroke="var(--gold)" strokeWidth="2" />}
             <circle cx={x} cy={y} r={r} fill={s.color} stroke="#070A12" strokeWidth="1.5" />
             <text x={x} y={y - r - 8} style={{ ...S.pin, fill: here || isDest ? "#fff" : "#B9C2D4" }}>
-              {s.name}{here ? " — you" : ""}
+              {s.name}{here && !transit ? " — you" : ""}{held ? " ◆" : ""}
             </text>
           </g>
         );
       })}
+
+      {shipXY && (
+        <g>
+          <circle cx={shipXY.x} cy={shipXY.y} r="6" fill="var(--gold)" stroke="#070A12" strokeWidth="1.5" />
+          <text x={shipXY.x} y={shipXY.y + 18} style={{ ...S.pin, fill: "var(--gold)" }}>{game.player.ship.name} · {Math.round(ship.f * 100)}%</text>
+        </g>
+      )}
     </svg>
   );
 }
@@ -317,14 +407,18 @@ function Toast({ toast, onDone }) {
 
 const S = {
   app: { height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" },
-  hud: { display: "flex", alignItems: "center", gap: 18, padding: "10px 18px", borderBottom: "1px solid var(--line)", background: "var(--panel)" },
+  hud: { display: "flex", alignItems: "center", gap: 16, padding: "10px 18px", borderBottom: "1px solid var(--line)", background: "var(--panel)" },
   homeBtn: { textDecoration: "none", color: "var(--muted)", fontSize: 18, border: "1px solid var(--line)", borderRadius: 8, padding: "3px 10px", background: "var(--panel-2)" },
   capName: { fontSize: 16, fontWeight: 700, letterSpacing: 0.3 },
   sub: { fontSize: 12, color: "var(--muted)" },
-  hudStats: { display: "flex", gap: 18, marginLeft: "auto" },
+  hudStats: { display: "flex", gap: 16, marginLeft: "auto" },
   hlabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)" },
   hvalue: { fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
   quit: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 },
+  clock: { display: "flex", gap: 5, alignItems: "center" },
+  rateBtn: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "5px 9px", cursor: "pointer", fontSize: 12, minWidth: 34 },
+  rateOn: { background: "var(--gold)", color: "#1A1200", fontWeight: 700 },
+  skipBtn: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 13, marginLeft: 4 },
 
   main: { flex: 1, display: "flex", minHeight: 0 },
   stage: { flex: 1, minWidth: 0, display: "flex" },
@@ -334,12 +428,19 @@ const S = {
   tab: { flex: 1, background: "var(--panel-2)", border: "none", padding: "12px", cursor: "pointer", fontSize: 14, color: "var(--muted)" },
   tabOn: { background: "var(--panel)", color: "var(--gold)", fontWeight: 700, boxShadow: "inset 0 -2px 0 var(--gold)" },
 
+  transitHead: { fontSize: 12, textTransform: "uppercase", letterSpacing: 1.5, color: "var(--gold)", marginBottom: 10 },
+  route: { fontSize: 20, fontWeight: 700, marginBottom: 14 },
+  arrow: { color: "var(--muted)" },
+  progressTrack: { height: 8, background: "var(--panel-2)", borderRadius: 5, overflow: "hidden", border: "1px solid var(--line)" },
+  progressFill: { height: "100%", background: "var(--gold)" },
+  hr: { height: 1, background: "var(--line)", margin: "16px 0" },
+
   siteName: { fontSize: 19, fontWeight: 700, padding: "16px 18px 4px" },
+  faction: { margin: "0 18px 8px", padding: "9px 12px", background: "rgba(242,180,65,0.08)", border: "1px solid rgba(242,180,65,0.35)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.5 },
   why: { fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, padding: "0 18px 14px" },
   fuelBox: { margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
   fuelHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 8 },
   marketHead: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "10px 18px 6px" },
-  marketList: { overflowY: "auto", padding: "0 12px 16px" },
   mrow: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", background: "none", border: "1px solid transparent", borderRadius: 8, cursor: "pointer", color: "var(--text)", textAlign: "left" },
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
   held: { color: "var(--gold)", fontSize: 12 },
@@ -355,6 +456,7 @@ const S = {
   row2: { display: "flex", justifyContent: "space-between", alignItems: "baseline" },
   destSys: { fontSize: 11, color: "var(--muted)" },
   destMeta: { fontSize: 12.5, color: "var(--muted)", marginTop: 4, fontVariantNumeric: "tabular-nums" },
+  destFaction: { color: "var(--gold)" },
   tooFar: { color: "var(--hot)" },
   destOpen: { padding: "0 13px 12px" },
   warnLine: { fontSize: 12, color: "var(--hot)", lineHeight: 1.5, marginTop: 6 },

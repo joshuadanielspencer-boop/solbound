@@ -24,13 +24,29 @@ import { SITE_BY_ID, SITES } from "./data/sites.js";
 import { SYSTEM_BY_ID } from "./data/bodies.js";
 import { DRIVES } from "./propulsion.js";
 import { propellantFor, massRatio } from "./propulsion.js";
-import { transferOptions } from "./transfer.js";
+import { transferOptions, transferPosition } from "./transfer.js";
+import { heliocentric } from "./ephemeris.js";
 import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
 import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
+import { spawnFactions, worldBrief } from "./factions.js";
 
 const DAY = 86400000;
 export const START_DATE = Date.UTC(2035, 0, 1);
+
+/**
+ * Clock speeds, in mission-days per real second — the fleet's living clock,
+ * brought to the trade game (design.md, the fleet+trade merge). This is what the
+ * player asked for back: planets moving, the ship crossing real space, time you
+ * can pause, hurry, or skip. A cislunar hop is days; a Mars run is months; the
+ * top speed makes even a Jupiter transfer watchable rather than a chore.
+ */
+export const RATES = [
+  { label: "❚❚", days: 0, name: "Paused" },
+  { label: "▶", days: 4, name: "4 days a second" },
+  { label: "▶▶", days: 25, name: "25 days a second" },
+  { label: "▶▶▶", days: 120, name: "120 days a second" },
+];
 
 /** A hop within one planet's system (moon to moon, or surface to orbit) is not a
  *  heliocentric transfer. Charge it a small flat Δv and a short time rather than
@@ -44,13 +60,23 @@ const INTRA_SYSTEM_DAYS = 6;
 const AEROBRAKE = { earth: 0.85, mars: 0.6, venus: 0.7 };  // fraction of arrival Δv waived
 
 export function newGame(player, seed = 1) {
+  const factions = spawnFactions(seed);
   return {
     player,
     markets: initialMarkets(),
     t: START_DATE,
     seed,
+    // The fleet's clock model, now the trade game's. `status` is "docked" (at a
+    // site, time paused, the dock open) or "transit" (flying a leg, the clock
+    // running). `leg` carries the real transfer arc so the orrery can draw the
+    // ship crossing space, exactly as the fleet did.
+    status: "docked",
+    leg: null,
+    rateIdx: 0,
+    factions,                                   // the roguelike draw for this run
     visited: [player.at],
     log: [`${player.name} takes command of the ${player.ship.name} at ${SITE_BY_ID[player.at]?.name}.`],
+    brief: worldBrief(factions),                // "who's out there" for the opening
   };
 }
 
@@ -116,15 +142,15 @@ export function destinations(game) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fly to `destId`. Spends propellant, advances the clock by the flight time,
- * and lets every market drift over that time (a shortage you left behind may
- * have eased; a new one may have opened). Returns { game } or { error, reason }.
+ * LAUNCH toward `destId`: spend the departure propellant and put the ship into
+ * transit on a real transfer arc. Does NOT advance time — the clock does that,
+ * so the player watches the ship cross space and can pause, hurry or skip.
  *
- * Markets advancing while you're in transit is the seed of the "information is
- * stale" idea (design.md §7): the prices you saw at departure are not the prices
- * you'll find on arrival, because months passed.
+ * The fuel is spent at the burn, at departure, because that's when it physically
+ * leaves the tank. Returns { game } (status "transit") or { error, reason }.
  */
-export function travel(game, destId) {
+export function launch(game, destId) {
+  if (game.status === "transit") return { error: "already-flying", reason: "Already under way." };
   const cost = travelCost(game, destId);
   if (!cost) return { error: "no-route" };
   if (!cost.reachable) return { error: "unreachable", reason: cost.reason };
@@ -132,25 +158,91 @@ export function travel(game, destId) {
     return { error: "low-fuel", reason: `Need ${cost.fuelTonnes.toFixed(1)} t of propellant; you have ${game.player.ship.fuelTonnes.toFixed(1)} t. Refuel first.` };
   }
 
-  const to = SITE_BY_ID[destId];
-  const arriveT = game.t + cost.days * DAY;
+  const from = SITE_BY_ID[game.player.at], to = SITE_BY_ID[destId];
+  const departT = game.t, arriveT = game.t + cost.days * DAY;
+  // Freeze the arc at launch so it never shifts under the ship while it flies.
+  const a = SYSTEM_BY_ID[from.system], b = SYSTEM_BY_ID[to.system];
+  const p1 = heliocentric(a.ephemerisKey, new Date(departT));
+  const p2 = heliocentric(b.ephemerisKey, new Date(arriveT));
+
   return {
     game: {
       ...game,
-      t: arriveT,
-      markets: advanceMarkets(game.markets, cost.days),
+      status: "transit",
+      rateIdx: game.rateIdx || 1,               // start the clock if it was paused
+      leg: {
+        from: from.id, to: destId, departT, arriveT,
+        fuelCost: cost.fuelTonnes, dvKms: cost.dvKms, days: cost.days,
+        r1: p1.r, r2: p2.r, lon1: p1.lon,        // the drawn arc
+        sameSystem: from.system === to.system,
+      },
       player: {
         ...game.player,
-        at: destId,
         ship: { ...game.player.ship, fuelTonnes: game.player.ship.fuelTonnes - cost.fuelTonnes },
       },
-      visited: game.visited.includes(destId) ? game.visited : [...game.visited, destId],
-      log: [...game.log, `Flew to ${to.name}: ${cost.days < 60 ? Math.round(cost.days) + " days" : (cost.days / 30.44).toFixed(0) + " months"}, ${cost.fuelTonnes.toFixed(1)} t of propellant.`],
+      log: [...game.log, `Departed ${from.name} for ${to.name} — ${cost.fuelTonnes.toFixed(1)} t of propellant.`],
     },
-    arrived: to.name,
-    spentFuel: cost.fuelTonnes,
-    days: cost.days,
   };
+}
+
+/**
+ * Advance the world clock to `toT`, drifting the markets and resolving an
+ * arrival if the ship reaches its destination on the way. Markets drift while
+ * you fly, so the prices at arrival aren't the prices at departure — the seed of
+ * stale information (design.md §7).
+ *
+ * Returns { game, arrived? } — `arrived` is the site name when a leg completed,
+ * so the UI can pause the clock and open the dock, the fleet's stop-on-arrival
+ * rhythm the player liked.
+ */
+export function advanceTime(game, toT) {
+  if (toT <= game.t) return { game };
+
+  // In transit and the arrival falls within this step → resolve it exactly at
+  // the arrival instant, then hold there (the clock pauses for the dock).
+  if (game.status === "transit" && game.leg && toT >= game.leg.arriveT) {
+    const leg = game.leg, to = SITE_BY_ID[leg.to];
+    const flownDays = (leg.arriveT - game.t) / DAY;
+    return {
+      game: {
+        ...game,
+        t: leg.arriveT,
+        status: "docked",
+        leg: null,
+        rateIdx: 0,                               // pause on arrival
+        markets: advanceMarkets(game.markets, flownDays),
+        player: { ...game.player, at: leg.to },
+        visited: game.visited.includes(leg.to) ? game.visited : [...game.visited, leg.to],
+        log: [...game.log, `Arrived ${to.name} — ${new Date(leg.arriveT).toISOString().slice(0, 10)}.`],
+      },
+      arrived: to.name,
+    };
+  }
+
+  // Otherwise just roll time forward and drift the markets.
+  const days = (toT - game.t) / DAY;
+  return { game: { ...game, t: toT, markets: advanceMarkets(game.markets, days) } };
+}
+
+/** Where the ship is on its arc right now, heliocentric — or null if docked. */
+export function shipPosition(game) {
+  if (game.status !== "transit" || !game.leg) return null;
+  const { departT, arriveT, r1, r2, lon1 } = game.leg;
+  const f = Math.max(0, Math.min(1, (game.t - departT) / (arriveT - departT)));
+  return { ...transferPosition(r1, r2, lon1, f), f };
+}
+
+/**
+ * TRAVEL — the headless, all-at-once version: launch, then run the clock
+ * straight to arrival. Used by tests and any non-interactive caller; the UI
+ * uses launch() + the animated clock instead. Same machinery, so the two can't
+ * diverge.
+ */
+export function travel(game, destId) {
+  const l = launch(game, destId);
+  if (l.error) return l;
+  const r = advanceTime(l.game, l.game.leg.arriveT);
+  return { game: r.game, arrived: r.arrived, spentFuel: l.game.leg.fuelCost, days: l.game.leg.days };
 }
 
 // ---------------------------------------------------------------------------

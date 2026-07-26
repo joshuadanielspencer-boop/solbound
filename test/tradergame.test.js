@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   newGame, travelCost, destinations, travel, refuel, fuelPrice,
   buy, sell, wait, tankMax, tankFree, START_DATE,
+  launch, advanceTime, shipPosition, RATES,
 } from "../src/tradergame.js";
 import { newPlayer, cargoUsed } from "../src/player.js";
 import { defaultSkills } from "../src/data/captain.js";
@@ -119,6 +120,84 @@ describe("time and markets move while you fly", () => {
     const g2 = wait(g, 200);
     expect(g2.t).toBeGreaterThan(g.t);
     expect(JSON.stringify(g2.markets)).not.toBe(JSON.stringify(g.markets));
+  });
+});
+
+describe("the living clock — launch, fly, arrive", () => {
+  it("launch puts the ship in transit and spends the departure fuel, but no time passes yet", () => {
+    // The whole point of the merge: you don't teleport, you set out. Time is the
+    // clock's job, so the player can watch, pause and skip.
+    const g = freshGame();
+    const fuel0 = g.player.ship.fuelTonnes;
+    const r = launch(g, "jezero-station");
+    expect(r.error).toBeUndefined();
+    expect(r.game.status).toBe("transit");
+    expect(r.game.leg.to).toBe("jezero-station");
+    expect(r.game.t).toBe(g.t);                              // no time has passed
+    expect(r.game.player.ship.fuelTonnes).toBeLessThan(fuel0); // but the burn happened
+    expect(r.game.player.at).toBe("leo");                    // still "from" until arrival
+  });
+
+  it("the clock advances the ship along a real arc, then pauses it on arrival", () => {
+    let { game } = launch(freshGame(), "jezero-station");
+    const mid = game.t + (game.leg.arriveT - game.t) / 2;
+
+    // Halfway: still flying, and genuinely between the two orbits, not teleporting.
+    const midway = advanceTime(game, mid);
+    expect(midway.arrived).toBeUndefined();
+    const pos = shipPosition(midway.game);
+    expect(pos.f).toBeGreaterThan(0.4).toBeLessThan(0.6);
+    expect(pos.r).toBeGreaterThan(midway.game.leg.r1);
+    expect(pos.r).toBeLessThan(midway.game.leg.r2);
+
+    // Push past arrival: it resolves exactly at the arrival instant and pauses.
+    const done = advanceTime(midway.game, game.leg.arriveT + 999 * 86400000);
+    expect(done.arrived).toBe("Jezero Station");
+    expect(done.game.status).toBe("docked");
+    expect(done.game.player.at).toBe("jezero-station");
+    expect(done.game.rateIdx).toBe(0);                       // clock paused for the dock
+    expect(shipPosition(done.game)).toBeNull();
+  });
+
+  it("a docked ship has no position on the arc", () => {
+    expect(shipPosition(freshGame())).toBeNull();
+  });
+
+  it("can't launch a second leg while already flying", () => {
+    const { game } = launch(freshGame(), "shackleton");
+    expect(launch(game, "jezero-station").error).toBe("already-flying");
+  });
+
+  it("offers a real pause", () => {
+    expect(RATES[0].days).toBe(0);
+  });
+
+  it("markets drift by the same amount whether time passes in one step or many", () => {
+    // The clock ticks in small steps while playing; a test/headless caller jumps
+    // straight to arrival. Both must land on the same world, or the animated and
+    // headless paths would diverge.
+    const g = launch(freshGame(), "jezero-station").game;
+    const bulk = advanceTime(g, g.leg.arriveT).game;
+    let step = g;
+    const N = 20;
+    for (let i = 1; i <= N; i++) step = advanceTime(step, g.t + (g.leg.arriveT - g.t) * (i / N)).game;
+    // Compare a representative market's stock; linear drift makes these equal.
+    expect(step.markets["jezero-station"].stock.machinery)
+      .toBeCloseTo(bulk.markets["jezero-station"].stock.machinery, 4);
+  });
+});
+
+describe("the run gets a roguelike world", () => {
+  it("spawns factions and an opening brief", () => {
+    const g = freshGame();
+    expect(g.factions.length).toBeGreaterThanOrEqual(3);
+    expect(g.brief.length).toBe(g.factions.length);
+  });
+
+  it("the same seed produces the same world", () => {
+    const a = newGame(newPlayer({ name: "A", skills: defaultSkills() }), 77);
+    const b = newGame(newPlayer({ name: "B", skills: defaultSkills() }), 77);
+    expect(a.factions).toEqual(b.factions);
   });
 });
 

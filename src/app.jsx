@@ -37,51 +37,58 @@ function useHashRoute() {
   return route;
 }
 
+// The reference panels — the "Codex". These are no longer the front door; the
+// GAME is. They live behind #/codex as reference and as dev/test surfaces.
+const CODEX_IDS = ["rocket", "transfer", "daynight", "market", "fleet"];
+
 export default function App() {
   const route = useHashRoute();
-  if (route === "home") return <Home />;
+  // The game is the front door: empty hash, or the legacy #/play, lands there.
+  if (route === "home" || route === "play") return <Trader />;
+  if (route === "codex") return <Codex />;
   const entry = ROUTES[route];
-  if (!entry) return <Home unknown={route} />;
+  if (!entry) return <Trader />;      // anything unknown → the game
   const C = entry.comp;
   return <C />;
 }
 
-function Home({ unknown }) {
-  useEffect(() => { document.title = "SOLBOUND — Systems"; }, []);
-  const tagColor = { playable: "var(--gold)", physics: "#7FB2CE", economy: "#3E9B6E", demo: "var(--muted)" };
+function Codex() {
+  useEffect(() => { document.title = "SOLBOUND — Reference & systems"; }, []);
+  const tagColor = { physics: "#7FB2CE", economy: "#3E9B6E", demo: "var(--muted)" };
   return (
     <div style={s.wrap}>
       <div style={s.inner}>
         <header style={s.header}>
-          <img src={`${import.meta.env.BASE_URL}title-card.png`} alt="SOLBOUND" style={s.titleCard} />
-          <p style={s.tagline}>An economic strategy game in the real solar system. The map is delta-v, not distance.</p>
-          <p style={s.draft}>
-            Early build. The systems below are real and tested; the game that ties them
-            together is still being assembled. Facts and figures are drafts — don't learn
-            from them yet. The physics underneath them is real.
+          <a href="#/" style={s.backToGame}>← Back to the game</a>
+          <div style={s.codexTitle}>Reference &amp; systems</div>
+          <p style={s.tagline}>
+            The engines under the game, each on its own — the rocket equation, the
+            transfer maths, day and night, the market model — plus the earlier survey
+            fleet demo. A place to see how the real physics works, and the seed of an
+            in-game Codex.
           </p>
         </header>
 
-        {unknown && <div style={s.unknown}>No panel called “{unknown}”. Here's everything there is:</div>}
-
         <div style={s.grid}>
-          {Object.entries(ROUTES).map(([id, r]) => (
-            <a key={id} href={`#/${id}`} style={s.card}>
-              <div style={s.cardTop}>
-                <span style={s.emoji}>{r.emoji}</span>
-                <span style={{ ...s.tag, color: tagColor[r.tag] || "var(--muted)", borderColor: tagColor[r.tag] || "var(--line)" }}>{r.tag}</span>
-              </div>
-              <div style={s.cardTitle}>{r.title}</div>
-              <div style={s.cardBlurb}>{r.blurb}</div>
-              <div style={s.cardGo}>Open →</div>
-            </a>
-          ))}
+          {CODEX_IDS.map((id) => {
+            const r = ROUTES[id];
+            return (
+              <a key={id} href={`#/${id}`} style={s.card}>
+                <div style={s.cardTop}>
+                  <span style={s.emoji}>{r.emoji}</span>
+                  <span style={{ ...s.tag, color: tagColor[r.tag] || "var(--muted)", borderColor: tagColor[r.tag] || "var(--line)" }}>{r.tag}</span>
+                </div>
+                <div style={s.cardTitle}>{r.title}</div>
+                <div style={s.cardBlurb}>{r.blurb}</div>
+                <div style={s.cardGo}>Open →</div>
+              </a>
+            );
+          })}
         </div>
 
         <footer style={s.footer}>
-          Each panel has its own link — bookmark or share it directly. Built with real
-          orbital mechanics (JPL elements), the Tsiolkovsky rocket equation, and a
-          scarcity-priced economy. 114 tests and counting.
+          Built with real orbital mechanics (JPL elements), the Tsiolkovsky rocket
+          equation, and a scarcity-priced economy. Every panel has its own link.
         </footer>
       </div>
     </div>
@@ -93,7 +100,9 @@ const s = {
   inner: { maxWidth: 960, margin: "0 auto", padding: "60px 22px 80px" },
   header: { textAlign: "center", marginBottom: 40 },
   titleCard: { width: "100%", maxWidth: 620, height: "auto", display: "block", margin: "0 auto" },
-  tagline: { fontSize: 16, color: "#CDD5E4", margin: "4px 0 0", lineHeight: 1.5 },
+  backToGame: { display: "inline-block", marginBottom: 14, fontSize: 13, color: "var(--gold)", textDecoration: "none" },
+  codexTitle: { fontSize: 26, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 },
+  tagline: { fontSize: 15, color: "#CDD5E4", margin: "4px auto 0", lineHeight: 1.6, maxWidth: 620 },
   draft: { fontSize: 12.5, color: "var(--muted)", maxWidth: 620, margin: "18px auto 0", lineHeight: 1.6,
     background: "rgba(228,113,63,0.10)", border: "1px solid rgba(228,113,63,0.35)", borderRadius: 8, padding: "10px 14px" },
   unknown: { textAlign: "center", color: "var(--hot)", marginBottom: 18, fontSize: 14 },
