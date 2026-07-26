@@ -2,17 +2,31 @@
 // SPLASH + START MENU — the front door.
 //
 // Replaces the old "systems hub" that exposed the under-the-hood labs as the
-// landing page. The game is the front door now: title, then New Game /
-// Continue / Options. Continue and Options are honest placeholders until
-// save/load and a settings model exist — wired to show intent, not to pretend.
+// landing page. The game is the front door now: title, then Continue (if a save
+// exists) / New game / Options, plus load-from-file. Continue and file import
+// are wired to the real save layer; Options is an honest placeholder until a
+// settings model exists.
 //
 // The labs still exist for reference (the in-game Codex to be), reachable from
 // a quiet link here rather than being the first thing anyone sees.
 // ===========================================================================
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { savedSummary, deserialize } from "../save.js";
 
-export default function Splash({ onNew, hasSave, onContinue }) {
+export default function Splash({ onNew, hasSave, onContinue, onImported }) {
   const [options, setOptions] = useState(false);
+  const [fileError, setFileError] = useState(null);
+  const fileInput = useRef(null);
+  const summary = hasSave ? savedSummary() : null;
+
+  const onFile = async (e) => {
+    setFileError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const r = deserialize(await file.text());
+    if (r.error) { setFileError(r.message); return; }
+    onImported?.(r.save.state);
+  };
 
   return (
     <div style={s.wrap}>
@@ -24,12 +38,17 @@ export default function Splash({ onNew, hasSave, onContinue }) {
           <Options onBack={() => setOptions(false)} />
         ) : (
           <div style={s.menu}>
-            <button style={s.primary} onClick={onNew}>New game ▸</button>
-            <button style={{ ...s.secondary, opacity: hasSave ? 1 : 0.4 }} disabled={!hasSave}
-              onClick={onContinue} title={hasSave ? "" : "No saved game yet"}>
-              Continue{!hasSave && " — no save yet"}
-            </button>
+            {summary && (
+              <button style={s.primary} onClick={onContinue}>
+                <div style={s.contTop}>Continue ▸</div>
+                <div style={s.contSub}>{summary.name} · {summary.where === "under way" ? "under way" : summary.where} · {summary.dateISO}</div>
+              </button>
+            )}
+            <button style={summary ? s.secondary : s.primary} onClick={onNew}>New game{summary ? "" : " ▸"}</button>
+            <button style={s.secondary} onClick={() => fileInput.current?.click()}>Load from file</button>
             <button style={s.secondary} onClick={() => setOptions(true)}>Options</button>
+            <input ref={fileInput} type="file" accept=".json,application/json" onChange={onFile} style={{ display: "none" }} />
+            {fileError && <div style={s.fileErr}>{fileError}</div>}
           </div>
         )}
 
@@ -38,7 +57,7 @@ export default function Splash({ onNew, hasSave, onContinue }) {
           game around them is still coming together. Facts and figures on the cards
           are drafts — don't learn from them yet.
         </p>
-        <a href="#/codex" style={s.codex}>Reference & systems →</a>
+        <a href="#/codex" style={s.codex}>Reference &amp; systems →</a>
       </div>
     </div>
   );
@@ -66,9 +85,12 @@ const s = {
   inner: { width: "100%", maxWidth: 560, textAlign: "center" },
   logo: { width: "100%", maxWidth: 480, height: "auto", display: "block", margin: "0 auto 6px" },
   tagline: { fontSize: 15.5, color: "#CDD5E4", lineHeight: 1.6, margin: "6px 0 30px" },
-  menu: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 320, margin: "0 auto" },
-  primary: { padding: "15px", fontSize: 17, fontWeight: 700, background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 12, cursor: "pointer" },
+  menu: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 340, margin: "0 auto" },
+  primary: { padding: "14px", fontSize: 16, fontWeight: 700, background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 12, cursor: "pointer" },
+  contTop: { fontSize: 17 },
+  contSub: { fontSize: 12, fontWeight: 400, marginTop: 3, opacity: 0.8 },
   secondary: { padding: "13px", fontSize: 15, background: "var(--panel)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, cursor: "pointer" },
+  fileErr: { fontSize: 12.5, color: "var(--hot)", lineHeight: 1.5, marginTop: 2 },
   draft: { fontSize: 12, color: "var(--muted)", maxWidth: 420, margin: "30px auto 0", lineHeight: 1.6 },
   codex: { display: "inline-block", marginTop: 16, fontSize: 12.5, color: "var(--muted)", textDecoration: "none", borderBottom: "1px dotted var(--muted)", paddingBottom: 1 },
 

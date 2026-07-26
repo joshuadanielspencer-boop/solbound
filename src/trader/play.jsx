@@ -17,6 +17,7 @@ import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
+import { makeSave, serialize } from "../save.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
   buy, sell, tankMax, RATES,
@@ -92,9 +93,23 @@ export default function Play({ game, setGame, onQuit }) {
   const doSell = (id, qty) => { const r = sell(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Sold ${r.sold} t of ${COMMODITY_BY_ID[id].name} for ${money(r.earned)}.`); };
   const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
 
+  // Download the current game as a file — survives a cleared cache and moves
+  // between machines, the same escape hatch Shutterbug's passport has. The
+  // filename carries the captain and date so a folder of saves is legible.
+  const downloadSave = () => {
+    const g = game;
+    const name = `solbound-${(g.player.name || "captain").toLowerCase().replace(/\W+/g, "-")}-${new Date(g.t).toISOString().slice(0, 10)}.json`;
+    const blob = new Blob([serialize(makeSave(g, { stampMs: Date.now() }))], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    flash("Save downloaded. It also autosaves on every arrival and trade.");
+  };
+
   return (
     <div style={S.app}>
-      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} />
+      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave} />
       <div style={S.main}>
         <div style={S.stage}>
           <Orrery positions={positions} orbits={orbits} game={game} dest={dest} />
@@ -128,14 +143,15 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip }) {
+function Hud({ game, onQuit, setRate, skip, onDownload }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = SITE_BY_ID[p.at];
   const where = transit ? `en route to ${SITE_BY_ID[game.leg.to]?.name}` : `docked at ${here.name}`;
   return (
     <header style={S.hud}>
-      <a href="#/" style={S.homeBtn} title="Menu" aria-label="Menu">☰</a>
+      <button onClick={onDownload} style={S.homeBtn} title="Download this game as a file"
+        aria-label="Download save file">⤓</button>
       <div>
         <div style={S.capName}>{p.name}</div>
         <div style={S.sub}>{p.ship.name} · {where}</div>

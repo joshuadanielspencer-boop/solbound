@@ -11,7 +11,7 @@ import {
   SKILLS, BACKGROUNDS, SKILL_POINTS, SKILL_MIN, SKILL_MAX, validSkills, backgroundById,
 } from "../data/captain.js";
 
-export default function CreateCaptain({ onBegin }) {
+export default function CreateCaptain({ onBegin, onBack }) {
   const [name, setName] = useState("");
   const [skills, setSkills] = useState(BACKGROUNDS[0].skills);
   const [bg, setBg] = useState(BACKGROUNDS[0].id);
@@ -35,6 +35,7 @@ export default function CreateCaptain({ onBegin }) {
   return (
     <div style={s.wrap}>
       <div style={s.inner}>
+        {onBack && <button style={s.backLink} onClick={onBack}>← Back to menu</button>}
         <img src={`${import.meta.env.BASE_URL}title-card.png`} alt="SOLBOUND" style={s.logo} />
         <h1 style={s.h1}>Take command</h1>
         <p style={s.lead}>
@@ -90,6 +91,7 @@ export default function CreateCaptain({ onBegin }) {
 const s = {
   wrap: { minHeight: "100%", background: "radial-gradient(1200px 600px at 50% -10%, #12203a 0%, var(--bg) 60%)", overflowY: "auto" },
   inner: { maxWidth: 660, margin: "0 auto", padding: "40px 22px 70px" },
+  backLink: { background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 13, marginBottom: 10, padding: 0 },
   logo: { width: "100%", maxWidth: 420, height: "auto", display: "block", margin: "0 auto 8px" },
   h1: { textAlign: "center", fontSize: 26, margin: "6px 0 4px" },
   lead: { textAlign: "center", color: "#CDD5E4", fontSize: 15, lineHeight: 1.6, margin: "0 0 26px" },
