@@ -9,8 +9,9 @@
 import { describe, it, expect } from "vitest";
 import {
   tradeInValue, shipsForSale, buyShip, modulesForSale, fitModule, removeModule,
-  repairCost, repairHull,
+  repairCost, repairHull, buyEscapePod,
 } from "../src/shipyard.js";
+import { ESCAPE_POD } from "../src/data/hulls.js";
 import { newGame, buy } from "../src/tradergame.js";
 import { newPlayer, cargoUsed } from "../src/player.js";
 import { defaultSkills } from "../src/data/captain.js";
@@ -89,19 +90,37 @@ describe("fitting modules", () => {
       .toBeGreaterThan(fittedStats(g.player.ship.hull, g.player.ship.modules).cargoTonnes);
   });
 
-  it("can't fit more modules than the hull has slots", () => {
-    let g = rich();                                 // courier: 2 slots
+  it("can't fit more modules than the hull has bays of that kind", () => {
+    let g = rich();                                 // courier: 2 gadget bays
     g = fitModule(g, "hold").game;
     g = fitModule(g, "tank").game;
-    expect(fitModule(g, "shield").error).toBe("no-slot");
+    expect(fitModule(g, "miner").error).toBe("no-slot");
+  });
+
+  it("a hull with no bay of a kind can never mount that kind, at any price", () => {
+    // The whole point of splitting slots: character comes from the SHAPE of a
+    // hull's bays, not their number. A courier cannot be armoured into a warship.
+    const g = rich("leo", 5_000_000);
+    const r = fitModule(g, "shield");               // courier: 0 shield bays
+    expect(r.error).toBe("no-slot");
+    expect(r.reason).toMatch(/no shield bay at all/);
+  });
+
+  it("but the cutter, which is built for it, can mount a battery", () => {
+    let g = rich("leo", 5_000_000);
+    g = buyShip(g, "leo", "cutter").game;           // 3 weapon, 2 shield, 1 gadget
+    g = fitModule(g, "laser").game;
+    g = fitModule(g, "shield").game;
+    expect(g.player.ship.modules).toEqual(["laser", "shield"]);
+    expect(fittedStats(g.player.ship.hull, g.player.ship.modules).weapon).toBeGreaterThan(0);
   });
 
   it("removing a module refunds part of its price", () => {
     let g = rich();
-    g = fitModule(g, "shield").game;
+    g = fitModule(g, "tank").game;
     const before = g.player.credits;
-    const r = removeModule(g, "shield");
-    expect(r.game.player.ship.modules).not.toContain("shield");
+    const r = removeModule(g, "tank");
+    expect(r.game.player.ship.modules).not.toContain("tank");
     expect(r.game.player.credits).toBeGreaterThan(before);
   });
 
@@ -115,9 +134,48 @@ describe("fitting modules", () => {
   it("fitting a module costs money you don't get all back — no churn exploit", () => {
     let g = rich("leo", 200000);
     const start = g.player.credits;
-    g = fitModule(g, "shield").game;
-    g = removeModule(g, "shield").game;
+    g = fitModule(g, "tank").game;
+    g = removeModule(g, "tank").game;
     expect(g.player.credits).toBeLessThan(start);
+  });
+});
+
+describe("the escape pod", () => {
+  it("costs real money and sticks to the ship", () => {
+    const g = rich();
+    expect(g.player.ship.escapePod).toBe(false);     // you start without one
+    const r = buyEscapePod(g);
+    expect(r.game.player.ship.escapePod).toBe(true);
+    expect(r.game.player.credits).toBe(g.player.credits - ESCAPE_POD.price);
+  });
+
+  it("won't sell you a second one, or one you can't afford", () => {
+    const g = buyEscapePod(rich()).game;
+    expect(buyEscapePod(g).error).toBe("already-have");
+    expect(buyEscapePod({ ...rich(), player: { ...rich().player, credits: 10 } }).error).toBe("credits");
+  });
+
+  it("survives a change of ship — it's yours, not the hull's", () => {
+    let g = buyEscapePod(rich("leo", 5_000_000)).game;
+    g = buyShip(g, "leo", "clipper").game;
+    expect(g.player.ship.escapePod).toBe(true);
+  });
+});
+
+describe("crew berths gate the hull you can fly", () => {
+  it("won't sell you a ship with fewer berths than you have people", () => {
+    let g = rich("leo", 5_000_000);
+    g = buyShip(g, "leo", "freighter").game;         // 4 berths → 3 beside yours
+    g = { ...g, player: { ...g.player, crew: ["brant", "haruki", "nassar"] } };
+    const r = buyShip(g, "leo", "courier");          // 1 berth → 0 beside yours
+    expect(r.error).toBe("crew");
+    expect(r.reason).toMatch(/pay someone off/i);
+  });
+
+  it("reports berths on the sale list, so the choice is visible", () => {
+    const ships = shipsForSale(rich("leo"), "leo");
+    expect(ships.find((s) => s.hull.id === "courier").berths).toBe(0);
+    expect(ships.find((s) => s.hull.id === "freighter").berths).toBe(3);
   });
 });
 

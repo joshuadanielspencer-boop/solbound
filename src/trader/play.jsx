@@ -20,17 +20,20 @@ import { factionAt } from "../factions.js";
 import { FACTION_BY_ID } from "../data/factions.js";
 import { runPlan, cargoValueAt } from "../intel.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
-import { fittedStats, MODULE_BY_ID, HULL_BY_ID } from "../data/hulls.js";
+import { fittedStats, MODULE_BY_ID, HULL_BY_ID, ESCAPE_POD, SLOT_KINDS, slotUsage } from "../data/hulls.js";
 import { techOf } from "../data/sites.js";
 import { shipsForSale, modulesForSale, tradeInValue, repairCost } from "../shipyard.js";
-import { buyShip, fitModule, removeModule, repairHull } from "../shipyard.js";
+import { buyShip, fitModule, removeModule, repairHull, buyEscapePod } from "../shipyard.js";
+import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
+import { CREW_BY_ID, berthsFor } from "../data/crew.js";
+import { SKILLS } from "../data/captain.js";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter, controlledCargo, illegalCargo } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
 import { govOf } from "../data/sites.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
-  buy, sell, tankMax, RATES,
+  buy, sell, tankMax, RATES, dailyCost, tripCost,
 } from "../tradergame.js";
 
 const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
@@ -66,6 +69,7 @@ export default function Play({ game, setGame, onQuit }) {
         const r = advanceTime(g, g.t + RATES[g.rateIdx].days * (dt / 1000) * DAY);
         if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
         if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
+        if (r.quit?.length) queueMicrotask(() => flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad"));
         return r.game;
       });
     }, 33);
@@ -78,6 +82,7 @@ export default function Play({ game, setGame, onQuit }) {
     const r = advanceTime(g, g.leg.arriveT);
     if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
     if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
+    if (r.quit?.length) queueMicrotask(() => flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad"));
     return { ...r.game, rateIdx: 0 };
   });
 
@@ -125,6 +130,9 @@ export default function Play({ game, setGame, onQuit }) {
   const doFit = (id) => { const r = fitModule(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Fitted a ${r.fitted} for ${money(r.spent)}.`); };
   const doRemove = (id) => { const r = removeModule(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Removed the ${r.removed}, ${money(r.refund)} back.`); };
   const doRepair = () => { const r = repairHull(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Repaired ${r.repaired} points of hull for ${money(r.cost)}.`); };
+  const doBuyPod = () => { const r = buyEscapePod(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Escape pod fitted for ${money(r.spent)}. Cheaper than the alternative.`); };
+  const doHire = (id) => { const r = hireCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.hired.name} signed on at ${money(r.hired.wage)}/day.`); };
+  const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
 
   // Download the current game as a file — survives a cleared cache and moves
   // between machines, the same escape hatch Shutterbug's passport has. The
@@ -162,7 +170,7 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
               </div>
               {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
-                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} />
+                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
                   : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
             </>
           )}
@@ -207,6 +215,7 @@ function Hud({ game, onQuit, setRate, skip, onDownload }) {
         {p.record !== "clean" && (
           <Hstat label="Record" value={RECORD_BY_ID[p.record]?.name || p.record} tone="hot" />
         )}
+        {dailyCost(game) > 0 && <Hstat label="Wages" value={`${money(dailyCost(game))}/day`} />}
         <Hstat label="Date" value={fmtDate(game.t)} />
       </div>
       {transit ? (
@@ -343,8 +352,13 @@ function EncounterPanel({ game, onChoose, onDismiss }) {
             <div style={S.encText}>{outcome.detail}</div>
             <EffectList game={game} effects={outcome.effects} />
           </div>
+          {game.rescue && (
+            <div style={{ ...S.encWho, borderColor: "var(--gold)", background: "rgba(242,180,65,0.08)" }}>
+              <b style={{ color: "var(--gold)" }}>The pod worked.</b> {game.rescue.detail}
+            </div>
+          )}
           <button style={S.goBtn} onClick={onDismiss}>
-            {game.over ? "…" : "Back under way"}
+            {game.over ? "…" : game.rescue ? `Put down at ${game.rescue.siteName}` : "Back under way"}
           </button>
         </>
       )}
@@ -525,6 +539,9 @@ function Travel({ game, dest, setDest, onGo }) {
               <div style={S.row2}><b>{site.name}</b><span style={S.destSys}>{SYSTEM_BY_ID[site.system]?.name}</span></div>
               <div style={S.destMeta}>
                 {cost.fuelTonnes.toFixed(0)} t fuel · {fmtDur(cost.days)}
+                {/* Space Trader's "current costs" — what the CLOCK will charge
+                    you for this crossing, quoted before you commit to it. */}
+                {dailyCost(game) > 0 && <span> · {money(tripCost(game, cost.days))} in wages</span>}
                 {!cost.reachable && <span style={S.tooFar}> · out of range</span>}
                 {cost.reachable && !cost.enoughFuel && <span style={S.tooFar}> · refuel first</span>}
                 {control && <span style={S.destFaction}> · {control.faction.name}</span>}
@@ -584,16 +601,20 @@ function CustomsWarning({ game, site }) {
 // ---------------------------------------------------------------------------
 // The Ship Yard — repair, fit modules, trade up (tech-gated). Where money goes.
 // ---------------------------------------------------------------------------
-function Yard({ game, onBuyShip, onFit, onRemove, onRepair }) {
+function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, onDismiss }) {
   const p = game.player;
   const site = SITE_BY_ID[p.at];
   const stats = fittedStats(p.ship.hull, p.ship.modules);
+  const slots = slotUsage(p.ship.hull, p.ship.modules);
   const hull = HULL_BY_ID[p.ship.hull];
   const dmg = 100 - (p.ship.hullPct ?? 100);
   const repair = repairCost(game);
   const ships = shipsForSale(game, p.at);
   const mods = modulesForSale(game);
   const yardTech = techOf(site);
+  const eff = effectiveSkills(p);
+  const forHire = crewForHire(game.seed, p.at, game.t);
+  const berths = berthsFor(hull);
 
   return (
     <div style={{ overflowY: "auto", paddingBottom: 20 }}>
@@ -606,48 +627,122 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair }) {
         <div style={S.yardStats}>
           <span>Hold {stats.cargoTonnes} t</span>
           <span>Tank {stats.fuelTonnes} t</span>
-          <span>Slots {p.ship.modules.length}/{stats.slots}</span>
+          <span>Berths {p.crew?.length || 0}/{berths}</span>
           <span style={{ color: dmg > 0 ? "var(--hot)" : "#3E9B6E" }}>Hull {p.ship.hullPct ?? 100}%</span>
+        </div>
+        <div style={{ ...S.yardStats, marginTop: 6 }}>
+          {Object.entries(SLOT_KINDS).map(([k, kind]) => (
+            <span key={k} style={{ color: slots.total[k] === 0 ? "var(--muted)" : "#CDD5E4" }}
+              title={kind.note}>{kind.emoji} {kind.name} {slots.used[k]}/{slots.total[k]}</span>
+          ))}
         </div>
         {dmg > 0
           ? <button style={S.yardBtn} onClick={onRepair}>Repair hull — {money(repair)}</button>
           : <div style={{ ...S.small, marginTop: 6 }}>Hull sound. No repairs needed.</div>}
       </div>
 
+      {/* The escape pod — the cheapest insurance in the game */}
+      <div style={{ ...S.yardCard, borderColor: p.ship.escapePod ? "#3E9B6E" : "var(--hot)" }}>
+        <div style={S.yardTop}>
+          <b>{ESCAPE_POD.emoji} {ESCAPE_POD.name}</b>
+          <span style={{ ...S.small, color: p.ship.escapePod ? "#3E9B6E" : "var(--hot)" }}>
+            {p.ship.escapePod ? "Aboard" : "Not fitted"}
+          </span>
+        </div>
+        <div style={S.small}>{ESCAPE_POD.note}</div>
+        {!p.ship.escapePod && (
+          <button style={S.yardBtn} onClick={onBuyPod}>Fit a pod — {money(ESCAPE_POD.price)}</button>
+        )}
+      </div>
+
+      {/* Crew */}
+      <div style={S.yardHead}>Crew ({p.crew?.length || 0}/{berths} berths · {money(dailyWages(p))}/day)</div>
+      {berths === 0 && (
+        <div style={{ ...S.small, padding: "0 18px 6px" }}>
+          A {hull.name} has one berth, and you're in it. A bigger hull is the only way to carry anyone.
+        </div>
+      )}
+      {(p.crew || []).map((id) => {
+        const c = CREW_BY_ID[id];
+        return (
+          <div key={id} style={S.modRow}>
+            <div>
+              <b>{c.name}</b> <span style={S.crewTag}>{c.skill} {c.rating}</span>
+              <div style={S.small}>{money(c.wage)}/day · {c.blurb}</div>
+            </div>
+            <button style={S.modBtn} onClick={() => onDismiss(id)}>Pay off</button>
+          </div>
+        );
+      })}
+      {berths > 0 && (
+        <>
+          <div style={{ ...S.small, padding: "4px 18px 6px" }}>
+            {/* The rule, stated where it applies, because it's the whole system */}
+            The best hand aboard does the job: {SKILLS.map((s) => `${s.name} ${eff[s.id]}${eff[`${s.id}By`] ? "*" : ""}`).join(" · ")}
+            {SKILLS.some((s) => eff[`${s.id}By`]) && <span> — * = a hire, not you.</span>}
+          </div>
+          {forHire.filter((c) => !(p.crew || []).includes(c.id)).map((c) => (
+            <div key={c.id} style={S.modRow}>
+              <div>
+                <b>{c.name}</b> <span style={S.crewTag}>{c.skill} {c.rating}</span>
+                <div style={S.small}>{money(c.wage)}/day · {c.blurb}</div>
+              </div>
+              <button style={{ ...S.modBtn, opacity: berthsFree(p) > 0 ? 1 : 0.4 }}
+                disabled={berthsFree(p) <= 0} onClick={() => onHire(c.id)}>
+                {berthsFree(p) > 0 ? "Sign on" : "No berth"}
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+
       {/* Fitted modules */}
-      <div style={S.yardHead}>Fittings ({p.ship.modules.length}/{stats.slots} slots)</div>
+      <div style={S.yardHead}>Fittings ({slots.usedSlots}/{slots.totalSlots} bays)</div>
       {p.ship.modules.length === 0 && <div style={{ ...S.small, padding: "0 18px 6px" }}>Nothing fitted. Add capability below.</div>}
       {p.ship.modules.map((id) => (
         <div key={id} style={S.modRow}>
-          <div><b>{MODULE_BY_ID[id].emoji} {MODULE_BY_ID[id].name}</b><div style={S.small}>{MODULE_BY_ID[id].note}</div></div>
+          <div><b>{MODULE_BY_ID[id].emoji} {MODULE_BY_ID[id].name}</b> <span style={S.crewTag}>{MODULE_BY_ID[id].slot}</span>
+            <div style={S.small}>{MODULE_BY_ID[id].note}</div></div>
           <button style={S.modBtn} onClick={() => onRemove(id)}>Remove</button>
         </div>
       ))}
 
       {/* Modules for sale */}
       <div style={S.yardHead}>Fit a module</div>
-      {mods.filter((m) => !m.fitted).map(({ module, canFit, slotsFree }) => (
-        <div key={module.id} style={S.modRow}>
-          <div><b>{module.emoji} {module.name}</b> <span style={S.small}>{money(module.price)}</span><div style={S.small}>{module.note}</div></div>
-          <button style={{ ...S.modBtn, opacity: canFit ? 1 : 0.4 }} disabled={!canFit}
-            onClick={() => onFit(module.id)}>{slotsFree <= 0 ? "No slot" : "Fit"}</button>
-        </div>
-      ))}
+      {mods.filter((m) => !m.fitted).map(({ module, canFit, slotsFree, slotKind }) => {
+        const noBay = slotsFree <= 0;
+        return (
+          <div key={module.id} style={{ ...S.modRow, opacity: noBay ? 0.55 : 1 }}>
+            <div><b>{module.emoji} {module.name}</b> <span style={S.small}>{money(module.price)}</span>
+              {" "}<span style={S.crewTag}>{slotKind.name.toLowerCase()} bay</span>
+              <div style={S.small}>{module.note}</div></div>
+            <button style={{ ...S.modBtn, opacity: canFit ? 1 : 0.4 }} disabled={!canFit}
+              onClick={() => onFit(module.id)}
+              title={noBay ? `This hull has no free ${slotKind.name.toLowerCase()} bay` : ""}>
+              {noBay ? "No bay" : "Fit"}
+            </button>
+          </div>
+        );
+      })}
 
       {/* Ships for sale */}
       <div style={S.yardHead}>Ships for sale</div>
-      {ships.map(({ hull: h, owned, net, affordable, cargoFits }) => (
+      {ships.map(({ hull: h, owned, net, affordable, cargoFits, crewFits, berths: b }) => (
         <div key={h.id} style={{ ...S.shipRow, ...(owned ? S.shipOwned : null) }}>
           <div style={{ flex: 1 }}>
             <div><b>{h.emoji} {h.name}</b> {owned && <span style={S.ownedTag}>current</span>}</div>
-            <div style={S.small}>hold {h.cargoTonnes} t · tank {h.fuelTonnes} t · {h.slots} slots</div>
+            <div style={S.small}>
+              hold {h.cargoTonnes} t · tank {h.fuelTonnes} t · {b} berth{b === 1 ? "" : "s"}
+              {" · "}⚡{h.slots.weapon} 🛡{h.slots.shield} 🔩{h.slots.gadget}
+            </div>
             <div style={S.shipNote}>{h.note}</div>
           </div>
           {owned ? <span style={S.small}>—</span>
-            : <button style={{ ...S.shipBuyBtn, opacity: affordable && cargoFits ? 1 : 0.4 }}
-                disabled={!affordable || !cargoFits}
+            : <button style={{ ...S.shipBuyBtn, opacity: affordable && cargoFits && crewFits ? 1 : 0.4 }}
+                disabled={!affordable || !cargoFits || !crewFits}
                 onClick={() => onBuyShip(h.id)}
-                title={!cargoFits ? "Your cargo won't fit — sell some first" : ""}>
+                title={!cargoFits ? "Your cargo won't fit — sell some first"
+                  : !crewFits ? "Not enough berths for your crew — pay someone off first" : ""}>
                 {net >= 0 ? money(net) : `+${money(-net)}`}
               </button>}
         </div>
@@ -662,14 +757,25 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair }) {
 function SystemInfoBlock({ game, siteId }) {
   const info = systemInfo(game, siteId);
   if (!info) return null;
-  const dTone = { Safe: "#3E9B6E", Settled: "#3E9B6E", Unsettled: "var(--gold)", Dangerous: "var(--hot)" }[info.dangerWord] || "var(--muted)";
+  // POLICE AND PIRATES ON SEPARATE LINES, as Space Trader had them — because a
+  // heavily patrolled lane is SAFE for a legal hold and hostile to a banned one,
+  // and one netted "danger" word cannot say that.
+  const pTone = { Abundant: "#7FB2CE", Moderate: "#7FB2CE", Sparse: "var(--muted)", Absent: "var(--gold)" }[info.policeWord];
+  const rTone = { Swarms: "var(--hot)", Many: "var(--hot)", Some: "var(--gold)", Few: "#3E9B6E" }[info.pirateWord];
   return (
     <div style={S.sysinfo}>
       <div style={S.sysRow}>
         <span style={S.sysChip}>{info.tech.name}</span>
         <span style={S.sysChip}>{info.gov.type}</span>
-        <span style={{ ...S.sysChip, color: dTone, borderColor: dTone }}>{info.dangerWord}</span>
         <span style={S.sysPop}>pop. {info.population.toLocaleString()}</span>
+      </div>
+      <div style={S.sysRow}>
+        <span style={{ ...S.sysChip, color: pTone, borderColor: pTone }} title={info.policeNote}>
+          👮 Police: {info.policeWord}
+        </span>
+        <span style={{ ...S.sysChip, color: rTone, borderColor: rTone }} title={info.pirateNote}>
+          ☠ Pirates: {info.pirateWord}
+        </span>
       </div>
       <div style={S.sysPressure}>{info.pressure}</div>
     </div>
@@ -892,6 +998,7 @@ const S = {
   mrow: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", background: "none", border: "1px solid transparent", borderRadius: 8, cursor: "pointer", color: "var(--text)", textAlign: "left" },
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
   held: { color: "var(--gold)", fontSize: 12 },
+  crewTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 6px", marginLeft: 4 },
   bannedTag: { fontSize: 10, color: "var(--hot)", border: "1px solid var(--hot)", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   legalTag: { fontSize: 10, color: "#3E9B6E", border: "1px solid #3E9B6E", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   tierTag: { fontSize: 11, color: "var(--muted)" },

@@ -110,6 +110,40 @@ export function regionDanger(placed, systemId) {
 }
 
 /**
+ * PIRATES AND POLICE ARE TWO NUMBERS, NOT ONE.
+ *
+ * regionDanger() nets them against each other, which is right for "how likely is
+ * trouble" and wrong for everything else — because a heavily policed region is
+ * SAFE FROM RAIDERS and DANGEROUS TO SMUGGLERS at the same time. Netting those
+ * to a single word threw away the most useful thing on the screen, and it became
+ * load-bearing the moment contraband landed: the run you want with a legal hold
+ * is the exact opposite of the run you want with a banned one.
+ *
+ * So: predators add to one number, patrols to the other, and nothing cancels.
+ */
+export function pirateThreat(placed, systemId) {
+  let t = 0.08;   // opportunists exist everywhere
+  for (const p of placed) {
+    const site = SITE_BY_ID[p.siteId];
+    const d = FACTION_BY_ID[p.factionId]?.danger || 0;
+    if (site?.system === systemId && d > 0) t += d;
+  }
+  return Math.max(0, Math.min(1, t));
+}
+
+/** How much law patrols this region, from factions that keep order (negative
+ *  `danger` is what a navy looks like in the data). */
+export function patrolStrength(placed, systemId) {
+  let s = 0;
+  for (const p of placed) {
+    const site = SITE_BY_ID[p.siteId];
+    const d = FACTION_BY_ID[p.factionId]?.danger || 0;
+    if (site?.system === systemId && d < 0) s += -d;
+  }
+  return Math.max(0, Math.min(1, s));
+}
+
+/**
  * How this run's factions bend a site's market — the modifiers markets.js will
  * apply on top of the base geography. Returns { glut, demand, crisis, produces,
  * tariff } merged from the controlling faction (and any whose effect reaches

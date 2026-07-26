@@ -32,6 +32,7 @@ import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
 import { spawnFactions, worldBrief } from "./factions.js";
 import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
 import { ENCOUNTER_BY_ID } from "./data/encounters.js";
+import { dailyWages, payWages } from "./crew.js";
 
 const DAY = 86400000;
 export const START_DATE = Date.UTC(2035, 0, 1);
@@ -104,6 +105,16 @@ const systemOf = (siteId) => SITE_BY_ID[siteId]?.system;
  * (with a reason) when the tank couldn't hold the propellant even full, which
  * is a real rocket-equation wall, not a money problem.
  */
+/**
+ * WHAT THE CLOCK COSTS. Space Trader's "current costs" line, and the reason it
+ * matters: before crew, credits only ever moved up between purchases, so time
+ * was free — dithering in port, taking the slow route and waiting out a shortage
+ * all cost nothing. A wage bill running every day makes the calendar a resource,
+ * which is what a game about eight-month transfers needs it to be.
+ */
+export const dailyCost = (game) => dailyWages(game.player);
+export const tripCost = (game, days) => Math.round(dailyCost(game) * days);
+
 export function travelCost(game, destId) {
   const from = SITE_BY_ID[game.player.at], to = SITE_BY_ID[destId];
   if (!from || !to || from.id === to.id) return null;
@@ -224,6 +235,20 @@ export function launch(game, destId) {
  * so the UI can pause the clock and open the dock, the fleet's stop-on-arrival
  * rhythm the player liked.
  */
+/**
+ * Everything that happens purely because `days` went by: markets drift, and the
+ * crew get paid. One place, so the clock's three stopping points (an encounter,
+ * an arrival, an ordinary tick) can't disagree about what a day costs.
+ */
+function passTime(game, days) {
+  const w = payWages(game.player, days);
+  return {
+    player: w.player,
+    markets: advanceMarkets(game.markets, days),
+    quit: w.quit,
+  };
+}
+
 export function advanceTime(game, toT) {
   if (toT <= game.t) return { game };
   // An unresolved encounter holds the clock. The player has a decision to make
@@ -237,16 +262,19 @@ export function advanceTime(game, toT) {
   const ev = game.status === "transit" ? game.leg?.event : null;
   if (ev && !ev.fired && toT >= ev.atT) {
     const days = (ev.atT - game.t) / DAY;
+    const p = passTime(game, days);
     return {
       game: {
         ...game,
         t: ev.atT,
         rateIdx: 0,
-        markets: advanceMarkets(game.markets, days),
+        markets: p.markets,
+        player: p.player,
         leg: { ...game.leg, event: { ...ev, fired: true } },
         encounter: { ...ev, outcome: null },
       },
       encounter: ENCOUNTER_BY_ID[ev.encounterId]?.title || "Encounter",
+      quit: p.quit,
     };
   }
 
@@ -255,6 +283,7 @@ export function advanceTime(game, toT) {
   if (game.status === "transit" && game.leg && toT >= game.leg.arriveT) {
     const leg = game.leg, to = SITE_BY_ID[leg.to];
     const flownDays = (leg.arriveT - game.t) / DAY;
+    const p = passTime(game, flownDays);
     return {
       game: {
         ...game,
@@ -262,18 +291,24 @@ export function advanceTime(game, toT) {
         status: "docked",
         leg: null,
         rateIdx: 0,                               // pause on arrival
-        markets: advanceMarkets(game.markets, flownDays),
-        player: { ...game.player, at: leg.to },
+        markets: p.markets,
+        player: { ...p.player, at: leg.to },
         visited: game.visited.includes(leg.to) ? game.visited : [...game.visited, leg.to],
-        log: [...game.log, `Arrived ${to.name} — ${new Date(leg.arriveT).toISOString().slice(0, 10)}.`],
+        log: [
+          ...game.log,
+          `Arrived ${to.name} — ${new Date(leg.arriveT).toISOString().slice(0, 10)}.`,
+          ...p.quit.map((c) => `${c.name} left the ship at ${to.name} — unpaid wages.`),
+        ],
       },
       arrived: to.name,
+      quit: p.quit,
     };
   }
 
-  // Otherwise just roll time forward and drift the markets.
+  // Otherwise just roll time forward, drift the markets, and pay the crew.
   const days = (toT - game.t) / DAY;
-  return { game: { ...game, t: toT, markets: advanceMarkets(game.markets, days) } };
+  const p = passTime(game, days);
+  return { game: { ...game, t: toT, markets: p.markets, player: p.player }, quit: p.quit };
 }
 
 /** Where the ship is on its arc right now, heliocentric — or null if docked. */
@@ -396,9 +431,11 @@ export function sell(game, id, tonnes) {
 
 /** Let time pass at a site without travelling (wait for a shortage, a window). */
 export function wait(game, days) {
+  const p = passTime(game, days);
   return {
     ...game,
     t: game.t + days * DAY,
-    markets: advanceMarkets(game.markets, days),
+    markets: p.markets,
+    player: p.player,      // waiting in port is not free once you have a crew
   };
 }

@@ -20,6 +20,7 @@ import { HULL_BY_ID, STARTER_HULL, fittedStats } from "./data/hulls.js";
 import { COMMODITY_BY_ID } from "./data/commodities.js";
 import { priceAt, buy as marketBuy, sell as marketSell } from "./market.js";
 import { SITE_BY_ID } from "./data/sites.js";
+import { effectiveSkills } from "./crew.js";
 
 // Starting capital is deliberately not "pocket change." SOLBOUND's dependency
 // model makes cheap bulk goods unshippable on purpose (design.md §5), so the
@@ -49,7 +50,9 @@ export function newPlayer({ name, skills, avatar = null, hull = STARTER_HULL, mo
       name: shipName(name),
       fuelTonnes: fittedStats(hull, modules).fuelTonnes,  // start with a full tank
       hullPct: 100,        // integrity; damaged by encounters, repaired at a yard
+      escapePod: false,    // you start without one, and that is a decision
     },
+    crew: [],              // hired hands; the best aboard does the job (crew.js)
     at: START_SITE,        // docked here
     cargo: {},             // commodityId -> tonnes
     // What you paid, on average, per tonne of each good in the hold. Kept
@@ -101,7 +104,9 @@ const HOUSE_SPREAD = 0.08;   // 8% each side; a round trip costs ~16% in frictio
 // so buy price stays strictly above sell price for everyone. It's an edge on the
 // spread, never a reversal of it.
 const traderBonus = (player) => {
-  const t = player.skills?.trader ?? 4;
+  // The best trader ABOARD sets the price, not the captain — otherwise hiring a
+  // factor would be a wage bill that changed nothing.
+  const t = effectiveSkills(player).trader;
   return Math.max(-HOUSE_SPREAD * 0.5, Math.min(HOUSE_SPREAD * 0.75, (t - 4) * 0.012));
 };
 

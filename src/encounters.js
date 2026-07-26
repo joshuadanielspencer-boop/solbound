@@ -44,9 +44,11 @@ import {
 import { SITE_BY_ID, govOf, controlsCommodity, bansCommodity } from "./data/sites.js";
 import { COMMODITY_BY_ID, CONTROLS, CONTRABAND } from "./data/commodities.js";
 import { FACTION_BY_ID } from "./data/factions.js";
-import { factionAt, regionDanger } from "./factions.js";
+import { factionAt, regionDanger, pirateThreat, patrolStrength } from "./factions.js";
 import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, cargoCapacity } from "./player.js";
+import { effectiveSkills } from "./crew.js";
+import { STARTER_HULL } from "./data/hulls.js";
 import { seeded } from "./rng.js";
 
 const DAY = 86400000;
@@ -166,16 +168,25 @@ export function rollLegEvent(game, leg, cursor) {
   if (!to || !from) return null;
   const rng = legRng(game.seed, cursor, 0);
 
+  // How OFTEN something happens is the two regions netted against each other —
+  // a navy really does make a lane quieter. But WHAT happens reads the two
+  // numbers separately: predators decide the raids, patrols decide the stops.
+  // Netting those would mean a heavily policed lane threw fewer inspections,
+  // which is backwards.
   const danger = Math.max(
     regionDanger(game.factions, to.system),
     regionDanger(game.factions, from.system),
   );
-  const law = govOf(to).law;
+  const pirates = Math.max(
+    pirateThreat(game.factions, to.system),
+    pirateThreat(game.factions, from.system),
+  );
+  const law = clamp(govOf(to).law + patrolStrength(game.factions, to.system) * 0.4, 0, 1);
   if (rng() >= encounterChance(danger, leg.days)) return null;
 
   const control = factionAt(game.factions, leg.to) || factionAt(game.factions, leg.from);
   const biasKey = biasKeyFor(control?.faction);
-  const enc = pickEncounter(rng, { biasKey, danger, law, record: game.player.record });
+  const enc = pickEncounter(rng, { biasKey, danger: pirates, law, record: game.player.record });
   if (!enc) return null;
   if (enc.kind === "quiet") return { quiet: true, note: enc.text };
 
@@ -185,7 +196,9 @@ export function rollLegEvent(game, leg, cursor) {
     atFraction: round2(between(rng, 0.15, 0.85)),
     cursor,
     factionId: party?.factionId || null,
-    danger: round2(danger),
+    // The foe's strength comes from the PIRATE number, not the netted one — a
+    // raider in patrolled space is no less dangerous for being rarer.
+    danger: round2(pirates),
     law,
     biasKey,
   };
@@ -248,7 +261,10 @@ export function illegalCargo(player, gov) {
 // The resolver
 // ---------------------------------------------------------------------------
 
-const skill = (p, k) => p.skills?.[k] ?? 4;
+// The best hand ABOARD does the job — your own rating unless you hired better
+// (crew.js). Every skill check in this file goes through here, or a hired ace
+// would be a wage bill that changed nothing.
+const skill = (p, k) => effectiveSkills(p)[k] ?? 4;
 const stats = (p) => fittedStats(p.ship.hull, p.ship.modules) || { weapon: 0, defense: 0, fuelTonnes: 30 };
 const loadFraction = (p) => {
   const cap = cargoCapacity(p);
@@ -504,6 +520,21 @@ const HANDLERS = {
     // take the cargo, they fine you what they can get, and it goes on the record.
     if (banned.any) {
       const list = banned.lines.map((l) => `${l.tonnes} t of ${l.name.toLowerCase()}`).join(" and ");
+      // A shielded hold is the one thing that can make complying survivable: they
+      // search, and a thorough search still has to find the bay. This is what the
+      // module is FOR, so it earns its bay and its 85,000 credits here or nowhere.
+      const conceal = stats(player).concealment || 0;
+      const found = rng() < clamp(ctx.gov.law - conceal * 0.16, 0.08, 0.98);
+      if (!found) {
+        Object.assign(e.standing, moveStanding(ctx, 2));
+        return {
+          won: true,
+          headline: "They found nothing.",
+          detail: `They walked the hold with a scanner and signed you out clean. The bay behind the tankage `
+            + `does not appear on any manifest, and it did not appear to them either.`,
+          effects: e,
+        };
+      }
       e.cargoLost = Object.fromEntries(banned.lines.map((l) => [l.id, l.tonnes]));
       e.credits = -Math.min(player.credits, banned.fine);
       e.record = worsenRecord(player.record, banned.recordSteps);
@@ -843,12 +874,45 @@ export function applyOutcome(game, outcome) {
     log: [...(game.log || []), `${outcome.headline} (${outcome.label})`],
   };
   if (e.destroyed || hullPct <= 0) {
-    next.over = {
-      reason: "destroyed",
-      headline: outcome.headline,
-      detail: outcome.detail,
-      t: game.t,
-    };
+    // THE POD IS THE DIFFERENCE BETWEEN A HARD GAME AND AN UNFAIR ONE. With one
+    // aboard, losing the ship costs you the ship, the hold and the pod — and the
+    // run continues. Without one, the run is over. Either way the outcome was
+    // decided by a purchase the player made or skipped hours earlier, which is
+    // the only kind of death a trading game can afford.
+    if (p.ship.escapePod) {
+      const port = SITE_BY_ID[game.leg?.to] || SITE_BY_ID[p.at];
+      const stats0 = fittedStats(STARTER_HULL, []);
+      next.player = {
+        ...player,
+        at: port.id,
+        cargo: {}, costBasis: {},          // the hold went with the ship
+        crew: [],                          // and so did everyone's contract
+        ship: {
+          ...p.ship,
+          hull: STARTER_HULL, modules: [],
+          fuelTonnes: stats0.fuelTonnes, hullPct: 100,
+          escapePod: false,                // a pod is one use
+        },
+      };
+      next.status = "docked";
+      next.leg = null;
+      next.t = Math.max(game.t, game.leg?.arriveT ?? game.t);
+      next.rateIdx = 0;
+      next.visited = game.visited.includes(port.id) ? game.visited : [...game.visited, port.id];
+      next.rescue = {
+        siteId: port.id, siteName: port.name,
+        detail: `The pod got you clear, and a passing hauler got you to ${port.name}. The ship, the hold and `
+          + `everyone who signed on are gone. The yard has given you a Courier and a bill you will feel later.`,
+      };
+      next.log = [...next.log, `Ship lost. Picked up by pod and set down at ${port.name}.`];
+    } else {
+      next.over = {
+        reason: "destroyed",
+        headline: outcome.headline,
+        detail: outcome.detail,
+        t: game.t,
+      };
+    }
   }
   return next;
 }
@@ -914,5 +978,10 @@ export function resolveEncounter(game, choice) {
 /** Close the encounter panel and get back under way. */
 export function dismissEncounter(game) {
   if (!game.encounter) return game;
-  return { ...game, encounter: null, rateIdx: game.status === "transit" ? Math.max(1, game.rateIdx) : 0 };
+  return {
+    ...game,
+    encounter: null,
+    rescue: null,
+    rateIdx: game.status === "transit" ? Math.max(1, game.rateIdx) : 0,
+  };
 }

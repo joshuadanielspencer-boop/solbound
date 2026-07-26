@@ -25,7 +25,7 @@
 
 import { initialMarkets } from "./market.js";
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -130,6 +130,18 @@ const MIGRATIONS = {
       }
     }
     save.version = 5;
+    return save;
+  },
+  // v5 → v6: crew and the escape pod. Both default to "you have none", which is
+  // the honest reading of a save written before either existed — and it means an
+  // old captain is not silently handed a lifeboat they never bought.
+  5: (save) => {
+    const p = save.state?.player;
+    if (p) {
+      if (!Array.isArray(p.crew)) p.crew = [];
+      if (p.ship && p.ship.escapePod === undefined) p.ship.escapePod = false;
+    }
+    save.version = 6;
     return save;
   },
 };

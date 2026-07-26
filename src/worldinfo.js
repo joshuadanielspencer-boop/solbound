@@ -17,7 +17,7 @@
 // ===========================================================================
 
 import { SITES, SITE_BY_ID, techOf, govOf } from "./data/sites.js";
-import { factionAt, regionDanger } from "./factions.js";
+import { factionAt, regionDanger, pirateThreat, patrolStrength } from "./factions.js";
 import { FACTION_BY_ID } from "./data/factions.js";
 import { COMMODITY_BY_ID } from "./data/commodities.js";
 import { nominalStock } from "./market.js";
@@ -29,6 +29,34 @@ function dangerWord(d) {
   if (d < 0.5) return { word: "Unsettled", note: "raiders work these lanes" };
   return { word: "Dangerous", note: "cross it with a full hold and expect company" };
 }
+
+/**
+ * Space Trader put Police and Pirates on separate lines, and it was right to.
+ * These two words together tell you something one danger rating cannot: whether
+ * this is a lane you want to cross with a legal hold or a banned one.
+ */
+export function policeWord(level) {
+  if (level >= 0.78) return { word: "Abundant", note: "patrols stop everyone, and they are thorough" };
+  if (level >= 0.55) return { word: "Moderate", note: "you will be looked at eventually" };
+  if (level >= 0.3) return { word: "Sparse", note: "a patrol out here is bad luck, not routine" };
+  return { word: "Absent", note: "nobody is enforcing anything" };
+}
+
+export function pirateWord(threat) {
+  if (threat >= 0.7) return { word: "Swarms", note: "this is their coast, and they know your route" };
+  if (threat >= 0.45) return { word: "Many", note: "raiders work these lanes in numbers" };
+  if (threat >= 0.2) return { word: "Some", note: "opportunists, mostly, and mostly near the ports" };
+  return { word: "Few", note: "not nothing — it is never nothing — but close" };
+}
+
+/**
+ * How hard the law leans on a crossing INTO this site: its government's own
+ * appetite for enforcement, raised by any navy actually stationed nearby. A
+ * strict administration with a patrol fleet parked next door is the worst place
+ * in the game to be carrying something banned.
+ */
+export const policeLevel = (game, site) =>
+  Math.max(0, Math.min(1, govOf(site).law + patrolStrength(game.factions, site.system) * 0.4));
 
 /**
  * The System Info for a site: its character as a place. Pure — reads the site
@@ -55,9 +83,16 @@ export function systemInfo(game, siteId) {
     else pressure = `${f.name} sets the tone here.`;
   }
 
+  const police = policeLevel(game, site);
+  const pirates = pirateThreat(game.factions, site.system);
+  const pw = policeWord(police), rw = pirateWord(pirates);
+
   return {
     site, tech, gov, control, danger,
     dangerWord: dw.word, dangerNote: dw.note,
+    police, pirates,
+    policeWord: pw.word, policeNote: pw.note,
+    pirateWord: rw.word, pirateNote: rw.note,
     pressure,
     population: site.population,
   };

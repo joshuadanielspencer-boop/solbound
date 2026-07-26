@@ -11,9 +11,13 @@
 // game or an { error, reason } the UI can speak plainly.
 // ===========================================================================
 
-import { HULLS, HULL_BY_ID, MODULE_BY_ID, MODULES, fittedStats, HULL_RESALE, MODULE_RESALE } from "./data/hulls.js";
+import {
+  HULLS, HULL_BY_ID, MODULE_BY_ID, MODULES, fittedStats, slotUsage,
+  HULL_RESALE, MODULE_RESALE, ESCAPE_POD, SLOT_KINDS,
+} from "./data/hulls.js";
 import { SITE_BY_ID, techOf } from "./data/sites.js";
 import { cargoUsed } from "./player.js";
+import { berthsFor } from "./data/crew.js";
 
 /** What a ship (hull + its fitted modules) is worth as a trade-in. Never the
  *  full price — a used hull loses value, which makes buying up a commitment. */
@@ -23,6 +27,31 @@ export function tradeInValue(ship) {
   for (const id of ship.modules || []) v += (MODULE_BY_ID[id]?.price || 0) * MODULE_RESALE;
   // A battered hull is worth less — you can't sell damage.
   return Math.round(v * (0.4 + 0.6 * ((ship.hullPct ?? 100) / 100)));
+}
+
+// ---------------------------------------------------------------------------
+// The escape pod — the cheapest insurance in the game
+// ---------------------------------------------------------------------------
+
+/** Buy the pod. It is not a module and takes no bay; you have one or you don't. */
+export function buyEscapePod(game) {
+  const ship = game.player.ship;
+  if (ship.escapePod) return { error: "already-have", reason: "There's already a pod aboard." };
+  if (game.player.credits < ESCAPE_POD.price) {
+    return { error: "credits", reason: `A pod costs ${ESCAPE_POD.price.toLocaleString()} credits. Cheaper than the alternative.` };
+  }
+  return {
+    game: {
+      ...game,
+      player: {
+        ...game.player,
+        credits: game.player.credits - ESCAPE_POD.price,
+        ship: { ...ship, escapePod: true },
+      },
+      log: [...(game.log || []), `Escape pod fitted at ${SITE_BY_ID[game.player.at]?.name}.`],
+    },
+    spent: ESCAPE_POD.price,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -46,8 +75,11 @@ export function shipsForSale(game, siteId) {
       hull: h, owned,
       net,
       affordable: owned ? false : net <= game.player.credits,
-      // A downgrade can't hold your current cargo — flag it so the UI can stop it.
+      // A downgrade can't hold your current cargo or your current crew — flag
+      // both so the UI can stop it before it strands anything.
       cargoFits: fittedStats(h.id, []).cargoTonnes >= cargoUsed(game.player),
+      crewFits: berthsFor(h) >= (game.player.crew?.length || 0),
+      berths: berthsFor(h),
     };
   });
 }
@@ -68,6 +100,14 @@ export function buyShip(game, siteId, hullId) {
   const stats = fittedStats(hullId, []);
   if (stats.cargoTonnes < cargoUsed(game.player)) {
     return { error: "cargo", reason: `A ${h.name} can't hold your ${cargoUsed(game.player)} t of cargo. Sell some first.` };
+  }
+  // You cannot leave people behind by accident. A smaller hull means paying
+  // somebody off first, deliberately.
+  if (berthsFor(h) < (game.player.crew?.length || 0)) {
+    return {
+      error: "crew",
+      reason: `A ${h.name} has ${berthsFor(h)} berth${berthsFor(h) === 1 ? "" : "s"} beside yours, and you're carrying ${game.player.crew.length}. Pay someone off first.`,
+    };
   }
   const net = h.price - tradeInValue(game.player.ship);
   if (net > game.player.credits) {
@@ -102,24 +142,32 @@ export function buyShip(game, siteId, hullId) {
 /** The modules a port sells, with whether you can fit each right now. */
 export function modulesForSale(game) {
   const ship = game.player.ship;
-  const stats = fittedStats(ship.hull, ship.modules);
-  const usedSlots = ship.modules.length;
+  const slots = slotUsage(ship.hull, ship.modules);
   return MODULES.map((m) => ({
     module: m,
     fitted: ship.modules.includes(m.id),
-    canFit: usedSlots < stats.slots && game.player.credits >= m.price && !ship.modules.includes(m.id),
-    slotsFree: stats.slots - usedSlots,
+    slotKind: SLOT_KINDS[m.slot],
+    slotsFree: slots.free[m.slot],
+    canFit: slots.free[m.slot] > 0 && game.player.credits >= m.price && !ship.modules.includes(m.id),
   }));
 }
 
-/** Buy and install a module, if there's a free slot and the credits. */
+/** Buy and install a module, if the hull has a bay OF THAT KIND and the credits. */
 export function fitModule(game, moduleId) {
   const m = MODULE_BY_ID[moduleId];
   const ship = game.player.ship;
   if (!m) return { error: "no-such-module" };
   if (ship.modules.includes(moduleId)) return { error: "already-fitted", reason: "Already aboard." };
-  const stats = fittedStats(ship.hull, ship.modules);
-  if (ship.modules.length >= stats.slots) return { error: "no-slot", reason: "No free slots — remove something first." };
+  const slots = slotUsage(ship.hull, ship.modules);
+  if (slots.free[m.slot] <= 0) {
+    const kind = SLOT_KINDS[m.slot].name.toLowerCase();
+    return {
+      error: "no-slot",
+      reason: slots.total[m.slot] === 0
+        ? `A ${HULL_BY_ID[ship.hull].name} has no ${kind} bay at all. That's the hull, not the money.`
+        : `No free ${kind} bay — remove something first.`,
+    };
+  }
   if (game.player.credits < m.price) return { error: "credits", reason: `A ${m.name} costs ${m.price.toLocaleString()} credits.` };
 
   return {
