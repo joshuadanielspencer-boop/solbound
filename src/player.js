@@ -98,16 +98,22 @@ const traderBonus = (player) => {
   return Math.max(-HOUSE_SPREAD * 0.5, Math.min(HOUSE_SPREAD * 0.75, (t - 4) * 0.012));
 };
 
+// The spread applied to any mid price, exported so the intel layer (which works
+// from ESTIMATED mid prices at remote sites) charges the captain exactly what a
+// real transaction would. One source of truth for "what would I pay / get".
+export const priceToBuy = (player, mid) => Math.round(mid * (1 + HOUSE_SPREAD - traderBonus(player)));
+export const priceToSell = (player, mid) => Math.round(mid * (1 - HOUSE_SPREAD + traderBonus(player)));
+
 /** What the captain actually pays to buy, per tonne (better trader → less). */
 export const buyPrice = (player, market, site, id) => {
   const mid = priceAt(market, site, id);
-  return mid == null ? null : Math.round(mid * (1 + HOUSE_SPREAD - traderBonus(player)));
+  return mid == null ? null : priceToBuy(player, mid);
 };
 
 /** What the captain actually gets to sell, per tonne (better trader → more). */
 export const sellPrice = (player, market, site, id) => {
   const mid = priceAt(market, site, id);
-  return mid == null ? null : Math.round(mid * (1 - HOUSE_SPREAD + traderBonus(player)));
+  return mid == null ? null : priceToSell(player, mid);
 };
 
 // ---------------------------------------------------------------------------

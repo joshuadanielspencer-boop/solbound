@@ -126,6 +126,22 @@ export function initialMarkets() {
   return markets;
 }
 
+/**
+ * The EXPECTED (structural) mid price of a commodity at a site — the price it
+ * would show at its equilibrium stock, ignoring today's transient shortage or
+ * glut. This is PUBLIC KNOWLEDGE: everyone knows Mars structurally pays a
+ * premium for machinery because Mars imports machinery. It's what a trader can
+ * know about a place without being there, and it's the honest basis for the
+ * "average price list" (see intel.js). The live priceAt() adds the transient
+ * swing on top — the part you only see for sure when you arrive.
+ */
+export function avgPrice(site, commodityId) {
+  const c = COMMODITY_BY_ID[commodityId];
+  if (!c) return null;
+  const eq = equilibriumStock(site, commodityId);
+  return Math.round(c.valuePerTonne * priceMultiplier(eq / nominalStock(site, commodityId)));
+}
+
 /** Current unit price of a commodity at a site, in dollars per tonne. */
 export function priceAt(market, site, commodityId) {
   const c = COMMODITY_BY_ID[commodityId];

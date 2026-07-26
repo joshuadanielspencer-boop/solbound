@@ -17,6 +17,7 @@ import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
+import { runPlan, cargoValueAt } from "../intel.js";
 import { makeSave, serialize } from "../save.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
@@ -338,6 +339,8 @@ function Travel({ game, dest, setDest, onGo }) {
             {on && (
               <div style={S.destOpen}>
                 <div style={S.small}>{site.why}</div>
+                <MarketIntel game={game} toId={site.id}
+                  shippingPerTonne={cost.fuelTonnes && cargoUsed(game.player) ? (cost.fuelTonnes * (fuelPrice(game) || 1200)) / Math.max(1, cargoUsed(game.player)) : 0} />
                 {cost.reachable
                   ? <button style={{ ...S.goBtn, opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={() => onGo(site.id)}>
                       {ok ? `Launch — burn ${cost.fuelTonnes.toFixed(1)} t` : "Not enough fuel aboard"}
@@ -348,6 +351,53 @@ function Travel({ game, dest, setDest, onGo }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Market intel — see the trade before you fly (Space Trader's Average Price
+// List + Price Differences, and our light-lag information model made visible).
+// ---------------------------------------------------------------------------
+function MarketIntel({ game, toId, shippingPerTonne }) {
+  const carrying = cargoUsed(game.player) > 0;
+  const { rows, freshness } = runPlan(game, toId, shippingPerTonne);
+  const cargo = carrying ? cargoValueAt(game, toId) : null;
+  const best = rows.filter((r) => r.viable).slice(0, 3);
+  const freshTone = { live: "#3E9B6E", recent: "#3E9B6E", delayed: "var(--gold)", stale: "var(--hot)" }[freshness?.key] || "var(--muted)";
+
+  return (
+    <div style={S.intel}>
+      <div style={S.intelHead}>
+        Market intel
+        <span style={{ ...S.freshTag, color: freshTone, borderColor: freshTone }}>{freshness?.label}</span>
+      </div>
+
+      {carrying && (
+        <div style={S.intelBlock}>
+          <div style={S.intelLabel}>Your cargo would fetch there (est.)</div>
+          {cargo.lines.map((l) => (
+            <div key={l.id} style={S.intelRow}>
+              <span>{l.tonnes} t {l.name}</span>
+              <span>{l.sold ? money(l.value) : "not traded there"}</span>
+            </div>
+          ))}
+          <div style={{ ...S.intelRow, fontWeight: 700, color: "var(--gold)" }}>
+            <span>Total</span><span>~{money(cargo.total)}</span>
+          </div>
+        </div>
+      )}
+
+      <div style={S.intelBlock}>
+        <div style={S.intelLabel}>Best to carry from here (est. margin/t)</div>
+        {best.length ? best.map((r) => (
+          <div key={r.id} style={S.intelRow}>
+            <span>{r.name}</span>
+            <span style={{ color: "var(--gold)" }}>+{money(r.marginPerTonne)}</span>
+          </div>
+        )) : <div style={S.small}>Nothing here pays for the trip. Try a nearer world or a fuller hold.</div>}
+      </div>
+      <div style={S.intelNote}>{freshness?.note}</div>
     </div>
   );
 }
@@ -476,6 +526,14 @@ const S = {
   tooFar: { color: "var(--hot)" },
   destOpen: { padding: "0 13px 12px" },
   warnLine: { fontSize: 12, color: "var(--hot)", lineHeight: 1.5, marginTop: 6 },
+
+  intel: { margin: "10px 0 4px", padding: "10px 12px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8 },
+  intelHead: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 8 },
+  freshTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, border: "1px solid", borderRadius: 10, padding: "1px 7px" },
+  intelBlock: { marginBottom: 10 },
+  intelLabel: { fontSize: 11, color: "var(--muted)", marginBottom: 4 },
+  intelRow: { display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0", fontVariantNumeric: "tabular-nums" },
+  intelNote: { fontSize: 11, color: "var(--muted)", lineHeight: 1.5, fontStyle: "italic" },
 
   row: { display: "flex", gap: 6, alignItems: "center" },
   small: { fontSize: 12, color: "var(--muted)", lineHeight: 1.5 },
