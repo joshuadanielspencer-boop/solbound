@@ -133,6 +133,9 @@ export function generateNews(game) {
     for (const [id, stock] of Object.entries(m.stock)) {
       const c = COMMODITY_BY_ID[id];
       if (!c || c.valuePerTonne < 40000) continue;         // only goods worth hauling
+      // No paper prints "black market short of fissiles, buyers paying well."
+      // Contraband demand is something you work out, not something you read.
+      if (c.contraband) continue;
       const ratio = stock / nominalStock(site, id);
       if (ratio < 0.4 && site.consumes.includes(id)) {
         watch.push({ severity: (0.4 - ratio) * (c.valuePerTonne / 1e6), siteId: site.id, id, ratio });

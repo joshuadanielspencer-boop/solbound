@@ -25,7 +25,7 @@ import { techOf } from "../data/sites.js";
 import { shipsForSale, modulesForSale, tradeInValue, repairCost } from "../shipyard.js";
 import { buyShip, fitModule, removeModule, repairHull } from "../shipyard.js";
 import { makeSave, serialize } from "../save.js";
-import { encounterView, resolveEncounter, dismissEncounter, controlledCargo } from "../encounters.js";
+import { encounterView, resolveEncounter, dismissEncounter, controlledCargo, illegalCargo } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
 import { govOf } from "../data/sites.js";
 import {
@@ -281,7 +281,7 @@ const Row = ({ label, value, hint }) => (
 function EncounterPanel({ game, onChoose, onDismiss }) {
   const view = encounterView(game);
   if (!view) return null;
-  const { encounter: enc, faction, actions, controlled, outcome, gov } = view;
+  const { encounter: enc, faction, actions, controlled, illegal, outcome, gov } = view;
   const kindTone = { hostile: "var(--hot)", authority: "#7FB2CE", opportunity: "#3E9B6E", quiet: "var(--muted)" }[enc.kind];
   const kindWord = { hostile: "Hostile", authority: "Authority", opportunity: "Opportunity", quiet: "Quiet" }[enc.kind];
   const p = game.player;
@@ -295,6 +295,14 @@ function EncounterPanel({ game, onChoose, onDismiss }) {
       {faction?.faction && (
         <div style={S.encWho}>
           <b>{faction.faction.name}</b> — you stand at {faction.standing > 0 ? "+" : ""}{faction.standing} with them.
+        </div>
+      )}
+
+      {illegal?.any && (
+        <div style={{ ...S.encWho, borderColor: "var(--hot)", background: "rgba(193,84,42,0.12)" }}>
+          <b style={{ color: "var(--hot)" }}>You are carrying contraband.</b>{" "}
+          {illegal.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(", ")} — banned under {gov.type.toLowerCase()}.
+          If they open the hold it is seized, and the fine runs to about {money(illegal.fine)}.
         </div>
       )}
 
@@ -441,6 +449,10 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
               <button style={{ ...S.mrow, ...(on ? S.mrowOn : null) }} onClick={() => setSel(on ? null : r.id)}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
                   <span>{r.produces ? "◆ " : r.consumes ? "○ " : ""}{r.name}
+                    {/* Space Trader bolded illegal goods in its price list. Same
+                        job here: you must be able to see the risk in the row. */}
+                    {r.banned && <span style={S.bannedTag}>⚠ illegal here</span>}
+                    {r.contraband && !r.banned && <span style={S.legalTag}>legal here</span>}
                     {held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
                   <span style={S.tierTag}>
                     {TIERS[r.tier].name} · {r.state}
@@ -546,13 +558,26 @@ function Travel({ game, dest, setDest, onGo }) {
 function CustomsWarning({ game, site }) {
   const gov = govOf(site);
   const owed = controlledCargo(game.player, gov);
-  if (!owed.any) return null;
+  const banned = illegalCargo(game.player, gov);
+  if (!owed.any && !banned.any) return null;
   return (
-    <div style={S.customs}>
-      <b>{gov.type}</b> — this port polices controlled cargo.
-      You are carrying {owed.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")};
-      declared at inspection the duty is about <b>{money(owed.duty)}</b>. Legal, and not cheap.
-    </div>
+    <>
+      {banned.any && (
+        <div style={{ ...S.customs, background: "rgba(193,84,42,0.12)", borderColor: "var(--hot)" }}>
+          <b style={{ color: "var(--hot)" }}>Illegal here.</b>{" "}
+          {banned.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")} — banned under {gov.type.toLowerCase()},
+          and this is a <b>{Math.round(gov.law * 100)}%</b>-policed approach. Caught, you lose the cargo and about {money(banned.fine)}.
+          That is the trade: this is also where it is worth most.
+        </div>
+      )}
+      {owed.any && (
+        <div style={S.customs}>
+          <b>{gov.type}</b> — this port polices controlled cargo.
+          You are carrying {owed.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")};
+          declared at inspection the duty is about <b>{money(owed.duty)}</b>. Legal, and not cheap.
+        </div>
+      )}
+    </>
   );
 }
 
@@ -867,6 +892,8 @@ const S = {
   mrow: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", background: "none", border: "1px solid transparent", borderRadius: 8, cursor: "pointer", color: "var(--text)", textAlign: "left" },
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
   held: { color: "var(--gold)", fontSize: 12 },
+  bannedTag: { fontSize: 10, color: "var(--hot)", border: "1px solid var(--hot)", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
+  legalTag: { fontSize: 10, color: "#3E9B6E", border: "1px solid #3E9B6E", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   tierTag: { fontSize: 11, color: "var(--muted)" },
   buyP: { fontSize: 13, fontVariantNumeric: "tabular-nums" },
   sellP: { fontSize: 12, color: "var(--muted)", fontVariantNumeric: "tabular-nums" },

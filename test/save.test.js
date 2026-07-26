@@ -31,6 +31,34 @@ import { defaultSkills } from "../src/data/captain.js";
 
 const freshGame = (seed = 42) => newGame(newPlayer({ name: "Vega", skills: defaultSkills() }), seed);
 
+describe("migrations backfill content that did not exist when a save was written", () => {
+  it("an old save gains the commodities added since — silently missing goods is the worst save bug", () => {
+    // A market's stock map is built once, at newGame. A save written before
+    // contraband existed has no entry for arms or fissiles anywhere, so those
+    // goods would be untradeable in that game forever, with nothing looking
+    // broken. The migration has to seed them.
+    const old = JSON.parse(JSON.stringify(makeSave(freshGame(5))));
+    old.version = 4;
+    for (const m of Object.values(old.state.markets)) {
+      delete m.stock.arms;
+      delete m.stock.fissiles;
+    }
+    const r = deserialize(serialize(old));
+    expect(r.error).toBeUndefined();
+    expect(r.save.version).toBe(SAVE_VERSION);
+    expect(r.save.state.markets["ceres-port"].stock.fissiles).toBeGreaterThan(0);
+    expect(r.save.state.markets["psyche-works"].stock.arms).toBeGreaterThan(0);
+  });
+
+  it("but never disturbs stock the player already moved", () => {
+    const old = JSON.parse(JSON.stringify(makeSave(freshGame(5))));
+    old.version = 4;
+    old.state.markets["leo"].stock.machinery = 3;      // a market they worked over
+    const r = deserialize(serialize(old));
+    expect(r.save.state.markets["leo"].stock.machinery).toBe(3);
+  });
+});
+
 describe("the round trip", () => {
   it("a game survives serialise → deserialise unchanged", () => {
     const g = freshGame();

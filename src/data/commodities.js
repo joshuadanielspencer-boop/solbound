@@ -74,6 +74,38 @@ export const CONTROLS = {
   },
 };
 
+/**
+ * CONTRABAND — goods that are not licensed but BANNED, and the distinction is
+ * the whole point.
+ *
+ * A controlled good (above) is legal cargo that owes a duty. Contraband is
+ * illegal cargo: a strict government seizes it, fines you, and writes it on your
+ * record. That is why it pays — the ports that ban it are the ports that will
+ * pay most for it, because nothing legal supplies them.
+ *
+ * The pairing with CONTROLS is deliberate and it is real: reactor COMPONENTS
+ * move under safeguards and paperwork, while unsafeguarded fissile material is
+ * the thing the safeguards exist to stop. Same industry, one side licensed, one
+ * side criminal. The IAEA has run an Incident and Trafficking Database of real
+ * seizures since 1993; this is not a made-up crime.
+ *
+ * `risk` scales the fine and how badly a conviction lands.
+ */
+export const CONTRABAND = {
+  arms: {
+    name: "Arms",
+    risk: 1,
+    note: "Weapons are the most tightly controlled trade on Earth today, and the first thing any government stops at its border.",
+  },
+  fissiles: {
+    name: "Fissile material",
+    risk: 2.5,
+    note: "Material outside the safeguards system. Every state that inspects anything inspects for this.",
+  },
+};
+
+export const isContraband = (c) => !!c?.contraband;
+
 export const TIERS = {
   raw:        { name: "Raw",        note: "Extracted from a body. Too cheap to ship — make it where you need it." },
   refined:    { name: "Refined",    note: "Processed from raw. Needs power more than it needs skill." },
@@ -140,6 +172,26 @@ export const COMMODITIES = [
     id: "machinery", name: "Machinery", tier: "industrial", unit: "t",
     valuePerTonne: 78000,
     note: "Pumps, drills, processors, robotics. What turns a site into a factory.",
+  },
+
+  // ---- CONTRABAND — banned where it is worth most ------------------------
+  // These two exist to make the risk layer a CHOICE rather than a tax. Every
+  // other good rewards you for reading a market; these reward you for reading a
+  // government. They are stocked only where they are legal, and they are dearest
+  // exactly where carrying them is a crime.
+  {
+    id: "arms", name: "Arms", tier: "industrial", unit: "t",
+    valuePerTonne: 180000, contraband: "arms",
+    note: "Small arms, munitions, and the machines that make them.",
+    lesson: "A free port sells these over the counter. Two weeks away, the same crate is a prison sentence. "
+      + "Nothing about the cargo changed — only whose space it is in.",
+  },
+  {
+    id: "fissiles", name: "Unsafeguarded fissiles", tier: "advanced", unit: "t",
+    valuePerTonne: 4500000, contraband: "fissiles",
+    note: "Enriched material outside the safeguards system. Reactor fuel, with no paperwork behind it.",
+    lesson: "The outer system runs on fission and cannot make its own fuel. That is a real dependency, and it is "
+      + "exactly the kind of dependency a black market grows in.",
   },
 
   // ---- ADVANCED — Earth, for a long time --------------------------------

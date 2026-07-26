@@ -23,7 +23,22 @@
 // ===========================================================================
 
 import { COMMODITIES, COMMODITY_BY_ID } from "./data/commodities.js";
-import { SITES } from "./data/sites.js";
+import { SITES, bannedAt } from "./data/sites.js";
+
+/**
+ * Does this site's industry MAKE this good, by virtue of its tier?
+ *
+ * One predicate, used by every function that needs the answer, because it used
+ * to be copied into four of them — and the moment contraband arrived, a copy
+ * that disagreed would have had Gateway Station openly manufacturing munitions
+ * because its `makes` list includes the industrial tier. Contraband is never
+ * manufactured by the tier rule: it is stocked only where a site lists it
+ * explicitly, which is what keeps it to the ports that should have it.
+ */
+const manufactures = (site, c) =>
+  !!c && !c.contraband
+  && (site.makes || []).includes(c.tier)
+  && !site.consumes.includes(c.id);
 
 /** Price never falls below 25% of base, nor rises above 6x it. */
 export const PRICE_FLOOR = 0.25;
@@ -69,8 +84,7 @@ export function nominalStock(site, commodityId) {
   const c = COMMODITY_BY_ID[commodityId];
   // Manufactured goods are held against demand from elsewhere rather than local
   // use, so they get a floor proportional to the population that makes them.
-  const manufactured = (site.makes || []).includes(c?.tier) && !site.consumes.includes(commodityId);
-  const floor = manufactured ? Math.max(20, site.population * 0.35) : 20;
+  const floor = manufactures(site, c) ? Math.max(20, site.population * 0.35) : 20;
   return Math.max(floor, (daily + prod) * NOMINAL_DAYS);
 }
 
@@ -94,12 +108,16 @@ export function dailyProduction(site, commodityId) {
   const c = COMMODITY_BY_ID[commodityId];
   if (!c) return 0;
   const extracts = site.produces.includes(commodityId);
-  const manufactures = (site.makes || []).includes(c.tier) && !site.consumes.includes(commodityId);
-  if (!extracts && !manufactures) return 0;
+  if (!extracts && !manufactures(site, c)) return 0;
   const perPerson = 0.011 * Math.pow(10000 / c.valuePerTonne, 0.45);
   // Manufacturing is slower than digging something out of the ground.
   return site.population * perPerson * (extracts ? 1 : 0.55);
 }
+
+/** How much better stocked an importer starts than it settles at (0.65 vs 0.55
+ *  of nominal, for a legal good — the ratio, so a black market lifts the same
+ *  way from its own much lower floor). */
+const START_STOCK_LIFT = 0.65 / 0.55;
 
 /** Build the starting market state for every site. */
 export function initialMarkets() {
@@ -114,12 +132,18 @@ export function initialMarkets() {
       // base — stocked no electronics at all, and there was nothing to buy on
       // turn one. `makes` is the dependency ladder, so it has to reach the
       // shelves.
-      const manufactures = (site.makes || []).includes(c.tier) && !needs;
-      if (!extracts && !needs && !manufactures) continue;
+      const makes = manufactures(site, c);
+      if (!extracts && !needs && !makes) continue;
       const nominal = nominalStock(site, c.id);
       // Producers start well stocked; importers start a little short, which is
-      // what makes them worth flying to on day one.
-      stock[c.id] = (extracts || manufactures) ? nominal * 1.4 : nominal * 0.65;
+      // what makes them worth flying to on day one. A banned good starts at its
+      // black-market level — which is barely stocked, and priced accordingly.
+      //
+      // The LIFT matters and is easy to lose: importers must start ABOVE where
+      // they settle, or opening stock equals equilibrium, mean reversion has
+      // nothing left to do, and every market in the game sits perfectly still
+      // for the whole run. (It did, for about ten minutes.)
+      stock[c.id] = (extracts || makes) ? nominal * 1.4 : nominal * equilibriumRatio(site, c) * START_STOCK_LIFT;
     }
     markets[site.id] = { siteId: site.id, stock };
   }
@@ -161,6 +185,8 @@ export function listing(market, site) {
     const ratio = stock / nominal;
     return {
       id, name: c.name, tier: c.tier, note: c.note, lesson: c.lesson,
+      contraband: c.contraband || null,
+      banned: bannedAt(site, c),      // legal to hold here, or a crime?
       stock, nominal, ratio,
       price: priceAt(market, site, id),
       base: c.valuePerTonne,
@@ -190,13 +216,27 @@ const REVERSION_HALFLIFE = 60;
  * or a faction-driven crisis — not the permanent starvation of an idle market.
  */
 export function equilibriumStock(site, commodityId) {
-  const nominal = nominalStock(site, commodityId);
   const c = COMMODITY_BY_ID[commodityId];
-  const makes = site.produces.includes(commodityId)
-    || ((site.makes || []).includes(c?.tier) && !site.consumes.includes(commodityId));
-  if (makes) return nominal * 1.4;                 // steady surplus
-  if (site.consumes.includes(commodityId)) return nominal * 0.55;  // steady import shortage
-  return nominal;
+  if (site.produces.includes(commodityId) || manufactures(site, c)) {
+    return nominalStock(site, commodityId) * 1.4;   // steady surplus
+  }
+  return nominalStock(site, commodityId) * equilibriumRatio(site, c);
+}
+
+/**
+ * How well stocked an IMPORTING site settles at, as a fraction of nominal.
+ *
+ * A legal import settles at a chronic shortage — supply exists, it's just never
+ * quite enough. A BANNED good settles far lower, because nothing legal supplies
+ * it at all: the only stock is what somebody smuggled in. That single number is
+ * what makes contraband pay. Price is a function of stock (see priceMultiplier),
+ * so a black market at 0.15 of nominal prices at roughly 2.9x base while the
+ * free port that sells it openly sits in surplus at 0.7x — a spread of about
+ * four, earned entirely by being willing to cross a border with it.
+ */
+function equilibriumRatio(site, c) {
+  if (!c || !site.consumes.includes(c.id)) return 1;
+  return bannedAt(site, c) ? 0.15 : 0.55;
 }
 
 /**

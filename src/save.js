@@ -23,7 +23,9 @@
 // the same two-tier approach Shutterbug settled on for its passport.
 // ===========================================================================
 
-export const SAVE_VERSION = 4;
+import { initialMarkets } from "./market.js";
+
+export const SAVE_VERSION = 5;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -108,6 +110,26 @@ const MIGRATIONS = {
       if (s.player && !s.player.record) s.player.record = "clean";
     }
     save.version = 4;
+    return save;
+  },
+  // v4 → v5: contraband. A market's stock map is built once, at newGame, from
+  // whatever commodities existed THEN — so an older save has no entry for arms
+  // or fissiles anywhere, and those goods are untradeable in it forever. Nothing
+  // looks broken; the feature is just silently absent, which is the worst kind of
+  // save bug. Seed any commodity a site should now trade at its opening level,
+  // leaving every existing stock exactly where the player left it.
+  4: (save) => {
+    const markets = save.state?.markets;
+    if (markets) {
+      const fresh = initialMarkets();
+      for (const [siteId, m] of Object.entries(fresh)) {
+        if (!markets[siteId]) { markets[siteId] = m; continue; }
+        for (const [id, qty] of Object.entries(m.stock)) {
+          if (markets[siteId].stock[id] === undefined) markets[siteId].stock[id] = qty;
+        }
+      }
+    }
+    save.version = 5;
     return save;
   },
 };

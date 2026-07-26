@@ -41,8 +41,8 @@ import {
   ENCOUNTERS, ENCOUNTER_BY_ID, ACTIONS, KIND_BIAS_BY_ARCHETYPE,
   SALVAGE_FINDS, worsenRecord, recordIndex,
 } from "./data/encounters.js";
-import { SITE_BY_ID, govOf, controlsCommodity } from "./data/sites.js";
-import { COMMODITY_BY_ID, CONTROLS } from "./data/commodities.js";
+import { SITE_BY_ID, govOf, controlsCommodity, bansCommodity } from "./data/sites.js";
+import { COMMODITY_BY_ID, CONTROLS, CONTRABAND } from "./data/commodities.js";
 import { FACTION_BY_ID } from "./data/factions.js";
 import { factionAt, regionDanger } from "./factions.js";
 import { fittedStats } from "./data/hulls.js";
@@ -215,6 +215,35 @@ export function controlledCargo(player, gov) {
   return { lines, value: Math.round(value), duty: Math.round(duty), any: lines.length > 0 };
 }
 
+/**
+ * The BANNED cargo aboard under a given government, and what a conviction costs.
+ *
+ * The difference from controlledCargo is the difference between a bill and a
+ * crime: this cargo is seized outright, the fine is a multiple of its value
+ * rather than a percentage, and it goes on your record. `risk` (per contraband
+ * class) scales it — fissiles land far harder than a crate of rifles, which is
+ * how it works in reality too.
+ */
+export function illegalCargo(player, gov) {
+  const lines = [];
+  let value = 0, fine = 0;
+  for (const [id, tonnes] of Object.entries(player.cargo || {})) {
+    const c = COMMODITY_BY_ID[id];
+    if (!c || tonnes <= 0 || !bansCommodity(gov, c)) continue;
+    const v = c.valuePerTonne * tonnes;
+    const risk = CONTRABAND[c.contraband]?.risk || 1;
+    value += v;
+    fine += v * 0.35 * risk;
+    lines.push({ id, name: c.name, tonnes: round2(tonnes), contraband: CONTRABAND[c.contraband]?.name, value: Math.round(v) });
+  }
+  return {
+    lines, value: Math.round(value), fine: Math.round(fine),
+    any: lines.length > 0,
+    // How many steps down the record ladder a conviction costs.
+    recordSteps: lines.some((l) => l.contraband === CONTRABAND.fissiles.name) ? 2 : 1,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The resolver
 // ---------------------------------------------------------------------------
@@ -327,17 +356,27 @@ const HANDLERS = {
       // Running from a patrol is remembered whether or not they catch you.
       e.record = worsenRecord(player.record, got ? 1 : 2);
       Object.assign(e.standing, moveStanding(ctx, got ? -14 : -22));
+      const banned = illegalCargo(player, ctx.gov);
       if (!got) {
         const owed = controlledCargo(player, ctx.gov);
-        e.credits = -Math.min(player.credits, Math.round((owed.duty || 25000) * 2.5));
+        const exposure = banned.any ? banned.fine : (owed.duty || 25000);
+        e.credits = -Math.min(player.credits, Math.round(exposure * 2.5));
         e.hullDamage = Math.round(damageFrom(rng, chase, player) * 0.4);
+        if (banned.any) {
+          e.cargoLost = Object.fromEntries(banned.lines.map((l) => [l.id, l.tonnes]));
+          e.record = worsenRecord(player.record, banned.recordSteps + 1);
+        }
       }
       return {
         won: got,
         headline: got ? "You outran the patrol." : "The patrol ran you down.",
         detail: got
-          ? `Fuel spent and days lost, and your name is in a log now. ${named(ctx)} do not forget a ship that runs.`
-          : `They matched you, boarded, and made the fine hurt. ${Math.abs(e.credits).toLocaleString()} credits, and a mark on your record.`,
+          ? (banned.any
+            ? `Fuel spent, days lost, and a hold nobody looked into. Your name is in a log now — ${named(ctx)} `
+              + `do not forget a ship that runs, and they will be looking for it next time.`
+            : `Fuel spent and days lost, and your name is in a log now. ${named(ctx)} do not forget a ship that runs.`)
+          : `They matched you, boarded, and ${banned.any ? "found exactly what you ran to hide" : "made the fine hurt"}. `
+            + `${Math.abs(e.credits).toLocaleString()} credits, and a mark on your record.`,
         effects: e,
       };
     }
@@ -394,26 +433,37 @@ const HANDLERS = {
       // and a strict administration is exactly the one you cannot buy.
       const caught = rng() < clamp(ctx.gov.law * 0.85 - (t - 4) * 0.04, 0.05, 0.95);
       const owed = controlledCargo(player, ctx.gov);
+      const banned = illegalCargo(player, ctx.gov);
+      // What's at stake decides what a bribe is worth. A smuggler is buying off
+      // a seizure, not a duty, so the number is an order of magnitude different.
+      const exposure = banned.any ? banned.fine : (owed.duty || 20000);
       if (caught) {
-        e.credits = -Math.min(player.credits, Math.round((owed.duty || 20000) * 3 + 15000));
-        e.record = worsenRecord(player.record, 2);
-        Object.assign(e.standing, moveStanding(ctx, -25));
+        e.credits = -Math.min(player.credits, Math.round(exposure * (banned.any ? 1.5 : 3) + 15000));
+        e.record = worsenRecord(player.record, banned.any ? banned.recordSteps + 1 : 2);
+        Object.assign(e.standing, moveStanding(ctx, banned.any ? -40 : -25));
         e.days = Math.round(between(rng, 2, 5));
+        if (banned.any) e.cargoLost = Object.fromEntries(banned.lines.map((l) => [l.id, l.tonnes]));
         return {
           won: false,
-          headline: "They logged the offer.",
-          detail: `The officer wrote down what you said, word for word, and fined you `
-            + `${Math.abs(e.credits).toLocaleString()} credits for it. It is on your record now.`,
+          headline: banned.any ? "The bribe told them where to look." : "They logged the offer.",
+          detail: banned.any
+            ? `Nobody offers money to an officer with an empty hold. They tore the ship apart, took all of it, `
+              + `and fined you ${Math.abs(e.credits).toLocaleString()} credits for the insult.`
+            : `The officer wrote down what you said, word for word, and fined you `
+              + `${Math.abs(e.credits).toLocaleString()} credits for it. It is on your record now.`,
           effects: e,
         };
       }
-      const price = Math.round(clamp((owed.duty || 12000) * between(rng, 0.4, 0.75) * (1 - (t - 4) * 0.05), 2000, player.credits));
-      e.credits = -price;
+      const price = Math.round(clamp(exposure * between(rng, 0.4, 0.75) * (1 - (t - 4) * 0.05), 2000, Math.max(2000, player.credits)));
+      e.credits = -Math.min(player.credits, price);
       e.days = 1;
       return {
         won: true,
         headline: "The inspection got shorter.",
-        detail: `${price.toLocaleString()} credits, quietly, and nobody opened anything. Cheaper than the duty — this time.`,
+        detail: banned.any
+          ? `${Math.abs(e.credits).toLocaleString()} credits, and the officer decides the hold scan was inconclusive. `
+            + `Your cargo is still aboard, and so is everything that makes it worth carrying.`
+          : `${Math.abs(e.credits).toLocaleString()} credits, quietly, and nobody opened anything. Cheaper than the duty — this time.`,
         effects: e,
       };
     }
@@ -447,7 +497,26 @@ const HANDLERS = {
     const { player, rng } = ctx;
     const e = blank();
     e.days = Math.round(between(rng, 1, 4));
+    const banned = illegalCargo(player, ctx.gov);
     const owed = controlledCargo(player, ctx.gov);
+
+    // CONTRABAND FIRST — a duty is a conversation, a banned hold is not. They
+    // take the cargo, they fine you what they can get, and it goes on the record.
+    if (banned.any) {
+      const list = banned.lines.map((l) => `${l.tonnes} t of ${l.name.toLowerCase()}`).join(" and ");
+      e.cargoLost = Object.fromEntries(banned.lines.map((l) => [l.id, l.tonnes]));
+      e.credits = -Math.min(player.credits, banned.fine);
+      e.record = worsenRecord(player.record, banned.recordSteps);
+      Object.assign(e.standing, moveStanding(ctx, -30));
+      e.days = Math.round(between(rng, 3, 9));
+      return {
+        won: false,
+        headline: "They found it.",
+        detail: `${list} in a hold you just opened for them. Seized, every tonne of it, and a fine of `
+          + `${Math.abs(e.credits).toLocaleString()} credits on top. ${ctx.gov.type} does not treat this as paperwork.`,
+        effects: e,
+      };
+    }
 
     if (!owed.any) {
       Object.assign(e.standing, moveStanding(ctx, 3));
@@ -806,6 +875,7 @@ export function encounterView(game) {
     danger: pending.danger,
     actions: enc.actions.map((id) => ACTIONS[id]).filter(Boolean),
     controlled: enc.stakes?.contrabandCheck ? controlledCargo(game.player, gov) : null,
+    illegal: enc.stakes?.contrabandCheck ? illegalCargo(game.player, gov) : null,
     outcome: pending.outcome || null,
   };
 }

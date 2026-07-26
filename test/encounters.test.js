@@ -20,14 +20,17 @@ import { describe, it, expect } from "vitest";
 import {
   resolve, applyOutcome, resolveEncounter, dismissEncounter, encounterView,
   rollLegEvent, encounterChance, pickEncounter, biasKeyFor, controlledCargo,
-  legRng, MAX_ENCOUNTER_DAMAGE,
+  illegalCargo, legRng, MAX_ENCOUNTER_DAMAGE,
 } from "../src/encounters.js";
 import { ENCOUNTER_BY_ID, RECORDS, recordIndex, worsenRecord } from "../src/data/encounters.js";
 import { newGame, launch, advanceTime, travel } from "../src/tradergame.js";
 import { newPlayer } from "../src/player.js";
 import { defaultSkills } from "../src/data/captain.js";
-import { GOVERNMENTS, SITE_BY_ID, govOf } from "../src/data/sites.js";
+import { GOVERNMENTS, SITE_BY_ID, govOf, bannedAt } from "../src/data/sites.js";
 import { FACTION_BY_ID } from "../src/data/factions.js";
+import { COMMODITY_BY_ID } from "../src/data/commodities.js";
+import { initialMarkets, priceAt, listing } from "../src/market.js";
+import { generateNews } from "../src/worldinfo.js";
 
 const game = (over = {}) => {
   const g = newGame(newPlayer({ name: "Vega", skills: defaultSkills() }), 42);
@@ -342,6 +345,134 @@ describe("contraband and the law", () => {
       return authority / 400;
     };
     expect(share("wanted")).toBeGreaterThan(share("clean"));
+  });
+});
+
+describe("contraband proper — banned, not merely taxed", () => {
+  const smuggler = (cargo) => withCargo(newPlayer({ name: "V", skills: defaultSkills() }), cargo);
+
+  it("the same crate is legal in one jurisdiction and a crime in the next", () => {
+    // This is the whole mechanic in one assertion. Nothing about the cargo
+    // changes — only whose space it is in.
+    const p = smuggler({ arms: 3 });
+    expect(illegalCargo(p, GOVERNMENTS.independent).any).toBe(false);   // free port
+    expect(illegalCargo(p, GOVERNMENTS.corporate).any).toBe(false);     // company town
+    expect(illegalCargo(p, GOVERNMENTS.agency).any).toBe(true);         // public administration
+  });
+
+  it("a corporate charter tolerates arms but not fissiles", () => {
+    expect(illegalCargo(smuggler({ arms: 2 }), GOVERNMENTS.consortium).any).toBe(false);
+    expect(illegalCargo(smuggler({ fissiles: 1 }), GOVERNMENTS.consortium).any).toBe(true);
+  });
+
+  it("fissiles land harder than arms — the risk is graded, as it is in reality", () => {
+    const arms = illegalCargo(smuggler({ arms: 1 }), GOVERNMENTS.agency);
+    const fiss = illegalCargo(smuggler({ fissiles: 1 }), GOVERNMENTS.agency);
+    expect(fiss.recordSteps).toBeGreaterThan(arms.recordSteps);
+    // Per unit of VALUE, not just in absolute terms.
+    expect(fiss.fine / fiss.value).toBeGreaterThan(arms.fine / arms.value);
+  });
+
+  it("a duty is a bill; contraband is a seizure", () => {
+    // The distinction the whole law layer rests on. Controlled cargo costs money
+    // and keeps your record clean. Banned cargo is taken.
+    const licensed = resolve(ENCOUNTER_BY_ID.inspection, "comply",
+      ctx({ player: { ...smuggler({ medical: 1 }), credits: 5_000_000 } }));
+    expect(Object.keys(licensed.effects.cargoLost)).toEqual([]);
+    expect(licensed.effects.record).toBeNull();
+
+    const banned = resolve(ENCOUNTER_BY_ID.inspection, "comply",
+      ctx({ player: { ...smuggler({ fissiles: 2 }), credits: 5_000_000 } }));
+    expect(banned.effects.cargoLost.fissiles).toBe(2);          // all of it
+    expect(banned.effects.credits).toBeLessThan(0);
+    expect(recordIndex(banned.effects.record)).toBeGreaterThan(recordIndex("clean"));
+    expect(banned.won).toBe(false);
+  });
+
+  it("a successful bribe keeps the contraband — that is what you paid for", () => {
+    let kept = 0, caught = 0;
+    for (let i = 0; i < 300; i++) {
+      const o = resolve(ENCOUNTER_BY_ID.inspection, "bribe",
+        ctx({ player: { ...smuggler({ arms: 4 }), credits: 3_000_000 }, rng: legRng(71, i) }));
+      if (o.won) { kept++; expect(Object.keys(o.effects.cargoLost)).toEqual([]); }
+      else { caught++; expect(o.effects.cargoLost.arms).toBe(4); }
+    }
+    expect(kept).toBeGreaterThan(0);
+    expect(caught).toBeGreaterThan(0);   // and it is a real gamble, not a formality
+  });
+
+  it("outrunning the patrol keeps the cargo; being caught loses it AND the record", () => {
+    for (let i = 0; i < 200; i++) {
+      const o = resolve(ENCOUNTER_BY_ID.inspection, "flee",
+        ctx({ player: { ...smuggler({ fissiles: 1 }), credits: 3_000_000 }, rng: legRng(72, i) }));
+      if (o.won) expect(Object.keys(o.effects.cargoLost)).toEqual([]);
+      else expect(o.effects.cargoLost.fissiles).toBe(1);
+      expect(recordIndex(o.effects.record)).toBeGreaterThan(recordIndex("clean"));
+    }
+  });
+
+  it("the fine can never take more credits than you have", () => {
+    const g = { ...game(), player: { ...game().player, credits: 900, cargo: { fissiles: 3 } } };
+    for (const choice of ["comply", "bribe", "flee"]) {
+      const o = resolve(ENCOUNTER_BY_ID.inspection, choice, ctx({ player: g.player }));
+      expect(applyOutcome(g, o).player.credits).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe("contraband is worth carrying, and only just", () => {
+  it("banned ports pay far more than the free port that sells it openly", () => {
+    // The economics have to reward the risk or nobody would ever take it.
+    const m = initialMarkets();
+    const ceres = SITE_BY_ID["ceres-port"], callisto = SITE_BY_ID["callisto-station"];
+    const buy = priceAt(m[ceres.id], ceres, "fissiles");
+    const sell = priceAt(m[callisto.id], callisto, "fissiles");
+    expect(buy).toBeGreaterThan(0);
+    expect(sell).toBeGreaterThan(buy * 2);
+  });
+
+  it("the ports that sell it are the ones with no law, and vice versa", () => {
+    const m = initialMarkets();
+    for (const [siteId, market] of Object.entries(m)) {
+      const site = SITE_BY_ID[siteId];
+      for (const id of Object.keys(market.stock)) {
+        const c = COMMODITY_BY_ID[id];
+        if (!c.contraband) continue;
+        // If it's stocked where it's banned, that stock is a black market — it
+        // must be scarce, never a surplus a port openly produces.
+        if (bannedAt(site, c)) {
+          expect(site.produces.includes(id), `${siteId} openly produces banned ${id}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("no site openly manufactures contraband just because its tier allows it", () => {
+    // Gateway Station's `makes` includes the industrial tier, and arms are an
+    // industrial good — without an explicit guard, Earth's front door would have
+    // sold munitions on turn one.
+    const m = initialMarkets();
+    expect(m["leo"].stock.arms).toBeUndefined();
+    expect(m["jezero-station"].stock.arms).toBeUndefined();
+  });
+
+  it("the market screen flags what is illegal where", () => {
+    const m = initialMarkets();
+    const callisto = listing(m["callisto-station"], SITE_BY_ID["callisto-station"]);
+    const ceres = listing(m["ceres-port"], SITE_BY_ID["ceres-port"]);
+    expect(callisto.find((r) => r.id === "fissiles").banned).toBe(true);
+    expect(ceres.find((r) => r.id === "fissiles").banned).toBe(false);
+  });
+
+  it("the newspaper never advertises the black market", () => {
+    // A paper printing "fissiles short at Jezero, buyers paying well" would hand
+    // the player the smuggling route for free, and read absurdly.
+    const g = game();
+    const withNews = { ...g, player: { ...g.player, at: "leo" } };
+    const news = generateNews(withNews);
+    for (const item of news.items) {
+      expect(item.headline).not.toMatch(/fissile|arms/i);
+    }
   });
 });
 

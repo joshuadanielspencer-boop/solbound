@@ -75,7 +75,10 @@ export const SITES = [
        + "and an atmosphere that is 95% CO₂ — which a machine can turn into oxygen and methane. "
        + "Mars is the only place off Earth where a colony can make its own fuel from the air.",
     produces: ["volatiles", "ice", "regolith", "food"],
-    consumes: ["machinery", "electronics", "reactorparts", "medical", "parts"],
+    // `fissiles` is DEMAND, not permission: Jezero runs on fission, the agency
+    // that governs it bans unsafeguarded material, and somebody on Mars buys it
+    // anyway. That contradiction is the trade route.
+    consumes: ["machinery", "electronics", "reactorparts", "medical", "parts", "fissiles"],
     makes: ["refined", "industrial"],
     imports: ["electronics", "reactorparts", "medical", "instruments"],
     dvFromEarth: 4.6,
@@ -90,7 +93,11 @@ export const SITES = [
     why: "Ceres is roughly a quarter water by mass and its escape velocity is about 510 m/s — "
        + "you can practically walk off it. Far from the Sun, and yet cheaper to land on and "
        + "leave than our own Moon. 'Far' and 'hard' are different words, and Ceres is the proof.",
-    produces: ["ice", "propellant", "ore", "volatiles"],
+    // The free port is where the black market lives — not because Ceres makes
+    // arms or enriches anything, but because nobody here asks where a crate came
+    // from. Transhipment is what an unpoliced port is FOR, and it is why the
+    // cheapest place to buy contraband is the place with the least government.
+    produces: ["ice", "propellant", "ore", "volatiles", "arms", "fissiles"],
     consumes: ["food", "machinery", "electronics", "medical", "reactorparts"],
     makes: ["refined"],
     imports: ["electronics", "machinery", "medical", "reactorparts", "food"],
@@ -103,7 +110,9 @@ export const SITES = [
     techLevel: 3,
     why: "An asteroid that appears to be largely exposed metal — possibly the stripped core of "
        + "a shattered protoplanet. Iron and nickel at the surface, no digging required.",
-    produces: ["ore", "metal", "regolith"],
+    // A metal works in a company town with light law: it makes what it can sell,
+    // and nobody in the company objects to munitions.
+    produces: ["ore", "metal", "regolith", "arms"],
     consumes: ["food", "lifesupport", "electronics", "medical", "propellant"],
     makes: ["refined"],
     imports: ["food", "lifesupport", "electronics", "medical"],
@@ -120,7 +129,9 @@ export const SITES = [
        + "Io is bathed in a dose that would kill a person in a day; Callisto is survivable. "
        + "That single fact is why crewed-Jupiter studies keep choosing this moon and no other.",
     produces: ["ice", "propellant", "regolith"],
-    consumes: ["food", "lifesupport", "electronics", "reactorparts", "medical", "machinery"],
+    // The far frontier: everything runs on reactors nobody out here can fuel, and
+    // it is a long way from anyone who could enforce a rule about it.
+    consumes: ["food", "lifesupport", "electronics", "reactorparts", "medical", "machinery", "arms", "fissiles"],
     makes: ["refined"],
     imports: ["food", "electronics", "reactorparts", "medical", "machinery", "instruments"],
     dvFromEarth: 7.5,
@@ -171,16 +182,16 @@ export const TECH_LEVELS = [
  */
 export const GOVERNMENTS = {
   consortium:  { type: "Corporate charter", tariff: 0.12, law: 0.7, paper: "The Orbital Ledger",
-    controls: ["nuclear"], duty: 0.06,
+    controls: ["nuclear"], duty: 0.06, bans: ["fissiles"],
     note: "Corporate order — trade is free but taxed, and the rules are enforced." },
   agency:      { type: "Public administration", tariff: 0.05, law: 0.85, paper: "The Agency Bulletin",
-    controls: ["nuclear", "pharma", "dual"], duty: 0.045,
+    controls: ["nuclear", "pharma", "dual"], duty: 0.045, bans: ["arms", "fissiles"],
     note: "Low tariffs, strict oversight, and thorough inspections." },
   corporate:   { type: "Company town", tariff: 0.15, law: 0.5, paper: "The Kestrel Dispatch",
-    controls: [], duty: 0,
+    controls: [], duty: 0, bans: [],
     note: "High margins for the company, light law for everyone else." },
   independent: { type: "Free port", tariff: 0.03, law: 0.3, paper: "The Free Signal",
-    controls: [], duty: 0,
+    controls: [], duty: 0, bans: [],
     note: "Nobody's in charge — cheap to trade, and you watch your own back." },
 };
 
@@ -191,3 +202,14 @@ export const govOf = (site) => GOVERNMENTS[site?.owner] || GOVERNMENTS.independe
  *  commodity; which classes are policed is on the government.) */
 export const controlsCommodity = (gov, commodity) =>
   !!commodity?.control && (gov?.controls || []).includes(commodity.control);
+
+/**
+ * Is this commodity BANNED here? The line between this and controlsCommodity is
+ * the line between a duty and a crime — and it is the same cargo either way, so
+ * the only thing that decides it is whose space you are in. That is the lesson.
+ */
+export const bansCommodity = (gov, commodity) =>
+  !!commodity?.contraband && (gov?.bans || []).includes(commodity.contraband);
+
+/** Is this commodity banned at this SITE (by whoever governs it)? */
+export const bannedAt = (site, commodity) => bansCommodity(govOf(site), commodity);
