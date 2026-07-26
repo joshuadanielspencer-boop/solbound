@@ -1,0 +1,131 @@
+// ===========================================================================
+// FACTION SPAWN — rolling a fresh solar system at the start of each run.
+//
+// The geography never changes (design.md — that's the educational spine); the
+// ACTORS do. At the start of a run we draw a handful of factions from the pool
+// (data/factions.js), place each at one of its possible homes, and compute how
+// each one bends the world. Same seed → same run, so a game is reproducible and
+// shareable, and save/load is trivial. Different seed → a different set of
+// pressures and opportunities over the same real map.
+//
+// This is the roguelike, done without faking the planets.
+//
+// Everything here is SEEDED and PURE. No Math.random — the run's variety comes
+// from one integer, which is exactly what makes it replayable (rng.js).
+// ===========================================================================
+
+import { FACTIONS, FACTION_BY_ID, REGIONS, DISPOSITION_START } from "./data/factions.js";
+import { SITES, SITE_BY_ID } from "./data/sites.js";
+import { seeded } from "./rng.js";
+
+/** Populated sites a faction can actually be placed at. */
+const POPULATED = SITES.map((s) => s.id);
+
+/** Resolve a faction's `homes` (which may include region shorthands) to concrete
+ *  site ids that exist. */
+function possibleSites(faction) {
+  const out = new Set();
+  for (const h of faction.homes) {
+    if (h === "any") POPULATED.forEach((id) => out.add(id));
+    else if (REGIONS[h]) REGIONS[h].forEach((id) => SITE_BY_ID[id] && out.add(id));
+    else if (SITE_BY_ID[h]) out.add(h);
+  }
+  return [...out];
+}
+
+/**
+ * Draw and place `count` factions for a new run.
+ *
+ * Rules that keep a run coherent:
+ *  • No two factions share a home site — a place has one dominant actor, so its
+ *    character is legible rather than a muddle of conflicting modifiers.
+ *  • The draw is spread across archetypes where it can be, so a run isn't all
+ *    pirates or all merchants — you get a MIX of pressures, which is what makes
+ *    the strategic picture interesting.
+ *
+ * Returns an array of { faction, siteId, standing } — the placed actors.
+ */
+export function spawnFactions(seed, count = 4) {
+  const rng = seeded(seed >>> 0);
+  const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+  const shuffle = (arr) => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  };
+
+  const takenSites = new Set();
+  const placed = [];
+
+  // Try to cover distinct archetypes first, then fill the rest at random — so a
+  // run reliably has a spread of economic / military / tech / cultural pressure.
+  const byArch = {};
+  for (const f of FACTIONS) (byArch[f.archetype] ||= []).push(f);
+  const archOrder = shuffle(Object.keys(byArch));
+  const queue = [
+    ...archOrder.map((a) => pick(byArch[a])),               // one per archetype, shuffled
+    ...shuffle(FACTIONS),                                    // then everyone, for the remainder
+  ];
+
+  const usedFactions = new Set();
+  for (const faction of queue) {
+    if (placed.length >= count) break;
+    if (usedFactions.has(faction.id)) continue;
+    const sites = shuffle(possibleSites(faction)).filter((id) => !takenSites.has(id));
+    if (!sites.length) continue;                            // no free home; skip this one
+    const siteId = sites[0];
+    takenSites.add(siteId);
+    usedFactions.add(faction.id);
+    placed.push({
+      factionId: faction.id,
+      siteId,
+      standing: DISPOSITION_START[faction.disposition] ?? 0,
+    });
+  }
+  return placed;
+}
+
+// ---------------------------------------------------------------------------
+// Reading the placed world
+// ---------------------------------------------------------------------------
+
+/** The faction that controls a site this run, or null. */
+export function factionAt(placed, siteId) {
+  const p = placed.find((x) => x.siteId === siteId);
+  return p ? { ...p, faction: FACTION_BY_ID[p.factionId] } : null;
+}
+
+/**
+ * The danger level of a region this run, 0..1-ish, from whoever's active there.
+ * Feeds the encounter roll: a pirate-held approach is dangerous, a patrolled
+ * one is safe. Danger from multiple nearby actors adds, then clamps.
+ */
+export function regionDanger(placed, systemId) {
+  let d = 0.1;   // space is never perfectly safe
+  for (const p of placed) {
+    const site = SITE_BY_ID[p.siteId];
+    if (site?.system === systemId) d += FACTION_BY_ID[p.factionId].danger || 0;
+  }
+  return Math.max(0, Math.min(1, d));
+}
+
+/**
+ * How this run's factions bend a site's market — the modifiers markets.js will
+ * apply on top of the base geography. Returns { glut, demand, crisis, produces,
+ * tariff } merged from the controlling faction (and any whose effect reaches
+ * here). Kept as plain data so the market layer stays the single place that
+ * turns modifiers into prices.
+ */
+export function marketMods(placed, siteId) {
+  const here = factionAt(placed, siteId);
+  if (!here) return {};
+  return here.faction.market || {};
+}
+
+/** A one-line human summary of who's out there, for the run's opening brief. */
+export function worldBrief(placed) {
+  return placed.map((p) => {
+    const f = FACTION_BY_ID[p.factionId];
+    return `${f.name} at ${SITE_BY_ID[p.siteId]?.name}: ${f.blurb}`;
+  });
+}
