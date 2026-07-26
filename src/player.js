@@ -51,6 +51,12 @@ export function newPlayer({ name, skills, avatar = null, hull = STARTER_HULL, mo
     },
     at: START_SITE,        // docked here
     cargo: {},             // commodityId -> tonnes
+    // What you paid, on average, per tonne of each good in the hold. Kept
+    // alongside cargo (not inside it) so everything that reads cargo as plain
+    // tonnage still works. Powers the "you paid $X, profit $Y" the sell screen
+    // shows — the clarity touch that tells a player at a glance whether a trade
+    // was good (Space Trader had exactly this).
+    costBasis: {},         // commodityId -> avg dollars per tonne paid
     reputation: {},        // faction -> standing (built later)
     record: "clean",       // police record (built later)
     log: [],
@@ -147,11 +153,17 @@ export function buyGoods(player, markets, id, tonnes) {
   // captain the (possibly better) trader price. The gap is the skill's value.
   const res = marketBuy(markets, player.at, id, qty);
   const spent = unit * qty;
+  // Weighted-average cost basis: blend the new lot's price into whatever's
+  // already aboard, so a later sale can honestly say what you paid.
+  const had = player.cargo[id] || 0;
+  const prevCost = player.costBasis?.[id] || 0;
+  const newAvg = (had * prevCost + qty * unit) / (had + qty);
   return {
     player: {
       ...player,
       credits: player.credits - spent,
-      cargo: { ...player.cargo, [id]: (player.cargo[id] || 0) + qty },
+      cargo: { ...player.cargo, [id]: had + qty },
+      costBasis: { ...player.costBasis, [id]: newAvg },
     },
     markets: res.markets,
     bought: qty,
@@ -174,14 +186,22 @@ export function sellGoods(player, markets, id, tonnes) {
   const res = marketSell(markets, player.at, id, qty);
   const remaining = have - qty;
   const cargo = { ...player.cargo };
-  if (remaining > 0) cargo[id] = remaining; else delete cargo[id];
+  const costBasis = { ...player.costBasis };
+  const paid = costBasis[id] || 0;
+  if (remaining > 0) cargo[id] = remaining;
+  else { delete cargo[id]; delete costBasis[id]; }   // hold empty of it → forget the basis
 
   return {
-    player: { ...player, credits: player.credits + unit * qty, cargo },
+    player: { ...player, credits: player.credits + unit * qty, cargo, costBasis },
     markets: res.markets,
     sold: qty,
     unit,
     earned: unit * qty,
+    // What the sale actually made against what you paid — the number that tells
+    // you at a glance whether it was a good trade.
+    paidPerTonne: Math.round(paid),
+    profit: Math.round((unit - paid) * qty),
+    profitPerTonne: Math.round(unit - paid),
     unwanted: res.unwanted,
   };
 }

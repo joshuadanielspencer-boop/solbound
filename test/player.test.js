@@ -154,6 +154,52 @@ describe("the Trader skill is a real edge, not an exploit", () => {
   });
 });
 
+describe("cost basis tells you what you paid", () => {
+  it("records the weighted-average purchase price", () => {
+    let p = mk(), m = initialMarkets();
+    ({ player: p, markets: m } = buyGoods(p, m, "machinery", 3));
+    expect(p.costBasis.machinery).toBeGreaterThan(0);
+    // The basis should equal the unit price paid, on a single lot.
+    const r2 = buyGoods(p, m, "machinery", 2);
+    // After a second lot at a (slightly different) price, the basis is a blend
+    // between the two, never outside their range.
+    const lo = Math.min(p.costBasis.machinery, r2.unit);
+    const hi = Math.max(p.costBasis.machinery, r2.unit);
+    expect(r2.player.costBasis.machinery).toBeGreaterThanOrEqual(lo - 1);
+    expect(r2.player.costBasis.machinery).toBeLessThanOrEqual(hi + 1);
+  });
+
+  it("reports profit and loss on a sale", () => {
+    // Same-site round trip loses to the spread, so profit is negative — and the
+    // number is reported, which is the whole point (a player sees it was a bad
+    // trade).
+    let p = mk(), m = initialMarkets();
+    ({ player: p, markets: m } = buyGoods(p, m, "machinery", 3));
+    const r = sellGoods(p, m, "machinery", 3);
+    expect(r.paidPerTonne).toBeGreaterThan(0);
+    expect(r.profit).toBeLessThan(0);              // sold at same site → loss
+    expect(r.profit).toBe(r.profitPerTonne * 3);
+  });
+
+  it("forgets the basis once the hold is empty of a good", () => {
+    let p = mk(), m = initialMarkets();
+    ({ player: p, markets: m } = buyGoods(p, m, "machinery", 3));
+    const r = sellGoods(p, m, "machinery", 3);
+    expect(r.player.costBasis.machinery).toBeUndefined();
+  });
+
+  it("a real cross-site run shows a profit", () => {
+    // Buy at Gateway (producer, cheap), carry to the Moon (importer, dear), sell.
+    let p = mk(), m = initialMarkets();
+    ({ player: p, markets: m } = buyGoods(p, m, "machinery", 3));
+    const basis = p.costBasis.machinery;
+    p = { ...p, at: "shackleton" };
+    const r = sellGoods(p, m, "machinery", 3);
+    expect(r.paidPerTonne).toBeCloseTo(Math.round(basis), 0);
+    expect(r.profit).toBeGreaterThan(0);           // structural gain, cross-site
+  });
+});
+
 describe("conservation — nothing from nothing", () => {
   it("a full buy-then-sell round trip conserves credits minus the spread", () => {
     let p = mk(), m = initialMarkets();

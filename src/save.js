@@ -23,7 +23,7 @@
 // the same two-tier approach Shutterbug settled on for its passport.
 // ===========================================================================
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -79,7 +79,14 @@ export function deserialize(text) {
  * data-loss incident.
  */
 const MIGRATIONS = {
-  // 1: (save) => { ...upgrade a v1 save to v2...; save.version = 2; return save; },
+  // v1 → v2: cost-basis tracking. Old saves have no costBasis map; default it to
+  // empty. The only cost is that goods bought before the upgrade show no
+  // purchase price on their first sale — a cosmetic loss, not a broken world.
+  1: (save) => {
+    if (save.state?.player && !save.state.player.costBasis) save.state.player.costBasis = {};
+    save.version = 2;
+    return save;
+  },
 };
 
 function migrate(save) {

@@ -92,6 +92,20 @@ describe("bad saves fail loudly, never silently", () => {
   });
 });
 
+describe("migration upgrades old saves instead of breaking them", () => {
+  it("a v1 save (no costBasis) loads and gains the field", () => {
+    // Hand-build a v1 save the way the old code would have written it: a valid
+    // state with no costBasis map. It must migrate, not fail.
+    const g = freshGame();
+    delete g.player.costBasis;
+    const v1 = serialize({ version: 1, slot: "auto", stampMs: 0, label: "old", state: JSON.parse(JSON.stringify(g)) });
+    const r = deserialize(v1);
+    expect(r.error).toBeUndefined();
+    expect(r.save.version).toBe(SAVE_VERSION);
+    expect(r.save.state.player.costBasis).toEqual({});
+  });
+});
+
 describe("the same seed reproduces the same world", () => {
   it("a loaded save has the identical faction spawn a fresh game of that seed would", () => {
     const loaded = deserialize(serialize(makeSave(freshGame(555)))).save.state;

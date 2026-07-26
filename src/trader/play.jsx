@@ -91,7 +91,13 @@ export default function Play({ game, setGame, onQuit }) {
     flash(`Under way to ${SITE_BY_ID[destId].name}. Run the clock.`);
   };
   const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
-  const doSell = (id, qty) => { const r = sell(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Sold ${r.sold} t of ${COMMODITY_BY_ID[id].name} for ${money(r.earned)}.`); };
+  const doSell = (id, qty) => {
+    const r = sell(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad");
+    setGame(r.game);
+    const p = r.profit;
+    const verdict = p > 0 ? `profit ${money(p)}` : p < 0 ? `LOSS ${money(-p)}` : "break-even";
+    flash(`Sold ${r.sold} t of ${COMMODITY_BY_ID[id].name} for ${money(r.earned)} — ${verdict}.`, p < 0 ? "bad" : "ok");
+  };
   const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
 
   // Download the current game as a file — survives a cleared cache and moves
@@ -263,6 +269,7 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
       <div style={{ padding: "0 12px 16px" }}>
         {rows.map((r) => {
           const held = p.cargo[r.id] || 0;
+          const paid = Math.round(p.costBasis?.[r.id] || 0);
           const bp = buyPrice(p, market, site, r.id), sp = sellPrice(p, market, site, r.id);
           const on = sel === r.id;
           return (
@@ -271,14 +278,19 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
                   <span>{r.produces ? "◆ " : r.consumes ? "○ " : ""}{r.name}
                     {held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
-                  <span style={S.tierTag}>{TIERS[r.tier].name} · {r.state}</span>
+                  <span style={S.tierTag}>
+                    {TIERS[r.tier].name} · {r.state}
+                    {held > 0 && paid > 0 && ` · paid ${money(paid)}`}
+                  </span>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={S.buyP}>buy {money(bp)}</div>
-                  <div style={S.sellP}>sell {money(sp)}</div>
+                  <div style={{ ...S.sellP, color: held > 0 && paid > 0 ? (sp >= paid ? "#3E9B6E" : "var(--hot)") : "var(--muted)" }}>
+                    sell {money(sp)}{held > 0 && paid > 0 && ` (${sp >= paid ? "+" : "−"}${money(Math.abs(sp - paid))})`}
+                  </div>
                 </div>
               </button>
-              {on && <TradeBar row={r} held={held} bp={bp} sp={sp} free={cargoFree(p)} credits={p.credits} onBuy={onBuy} onSell={onSell} />}
+              {on && <TradeBar row={r} held={held} bp={bp} sp={sp} paid={paid} free={cargoFree(p)} credits={p.credits} onBuy={onBuy} onSell={onSell} />}
             </div>
           );
         })}
@@ -287,13 +299,19 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
   );
 }
 
-function TradeBar({ row, held, bp, sp, free, credits, onBuy, onSell }) {
+function TradeBar({ row, held, bp, sp, paid, free, credits, onBuy, onSell }) {
   const maxBuy = Math.max(0, Math.min(Math.floor(free), Math.floor(credits / bp), Math.floor(row.stock)));
   const [qty, setQty] = useState(1);
   const q = Math.min(qty, Math.max(maxBuy, held, 1));
+  const sellQ = Math.min(q, held);
   return (
     <div style={S.tradeBar}>
       <div style={S.small}>{row.note}</div>
+      {held > 0 && paid > 0 && (
+        <div style={{ ...S.small, marginTop: 6, color: sp >= paid ? "#3E9B6E" : "var(--hot)" }}>
+          You paid {money(paid)}/t. Selling {sellQ} t now = {sp >= paid ? "profit" : "loss"} {money(Math.abs((sp - paid) * sellQ))}.
+        </div>
+      )}
       <div style={{ ...S.row, marginTop: 8, justifyContent: "space-between" }}>
         <div style={S.row}>
           <button style={S.stepBtn} onClick={() => setQty((v) => Math.max(1, v - 1))}>−</button>
