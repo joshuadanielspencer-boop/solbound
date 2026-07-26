@@ -30,6 +30,8 @@ import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
 import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
 import { spawnFactions, worldBrief } from "./factions.js";
+import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
+import { ENCOUNTER_BY_ID } from "./data/encounters.js";
 
 const DAY = 86400000;
 export const START_DATE = Date.UTC(2035, 0, 1);
@@ -75,6 +77,12 @@ export function newGame(player, seed = 1) {
     status: "docked",
     leg: null,
     rateIdx: 0,
+    // The encounter layer. `rollCursor` is the determinism contract save.js
+    // insists on: every roll is keyed to (seed, cursor), so a reload replays the
+    // same trouble rather than rerolling it, and a shared seed replays exactly.
+    // `encounter` is the one currently on screen, if any.
+    rollCursor: 0,
+    encounter: null,
     factions,                                   // the roguelike draw for this run
     visited: [player.at],
     log: [`${player.name} takes command of the ${player.ship.name} at ${SITE_BY_ID[player.at]?.name}.`],
@@ -174,16 +182,28 @@ export function launch(game, destId) {
   const p1 = heliocentric(a.ephemerisKey, new Date(departT));
   const p2 = heliocentric(b.ephemerisKey, new Date(arriveT));
 
+  // ROLL THE LEG'S TROUBLE NOW, not tick by tick. One roll at departure, keyed
+  // to the run's seed and a cursor, decides whether something happens and when.
+  // Rolling per tick would make the outcome depend on the clock RATE, which is a
+  // player setting — the fast-forward button must not change the world.
+  const cursor = game.rollCursor ?? 0;
+  const legBase = { from: from.id, to: destId, days: cost.days };
+  const event = rollLegEvent(game, legBase, cursor);
+  const atT = event && !event.quiet ? departT + event.atFraction * (arriveT - departT) : null;
+
   return {
     game: {
       ...game,
       status: "transit",
       rateIdx: game.rateIdx || 1,               // start the clock if it was paused
+      rollCursor: cursor + 1,
       leg: {
         from: from.id, to: destId, departT, arriveT,
         fuelCost: cost.fuelTonnes, dvKms: cost.dvKms, days: cost.days,
         r1: p1.r, r2: p2.r, lon1: p1.lon,        // the drawn arc
         sameSystem: from.system === to.system,
+        event: event && !event.quiet ? { ...event, atT } : null,
+        quietNote: event?.quiet ? event.note : null,
       },
       player: {
         ...game.player,
@@ -206,6 +226,29 @@ export function launch(game, destId) {
  */
 export function advanceTime(game, toT) {
   if (toT <= game.t) return { game };
+  // An unresolved encounter holds the clock. The player has a decision to make
+  // and the world waits for it, exactly as it waits at a dock.
+  if (game.encounter && !game.encounter.outcome) return { game };
+  if (game.over) return { game };
+
+  // Trouble on the way, and it falls within this step → stop AT it, pause the
+  // clock, and hand the decision up. Same rhythm as an arrival, which is the
+  // rhythm the fleet sim established and the player liked.
+  const ev = game.status === "transit" ? game.leg?.event : null;
+  if (ev && !ev.fired && toT >= ev.atT) {
+    const days = (ev.atT - game.t) / DAY;
+    return {
+      game: {
+        ...game,
+        t: ev.atT,
+        rateIdx: 0,
+        markets: advanceMarkets(game.markets, days),
+        leg: { ...game.leg, event: { ...ev, fired: true } },
+        encounter: { ...ev, outcome: null },
+      },
+      encounter: ENCOUNTER_BY_ID[ev.encounterId]?.title || "Encounter",
+    };
+  }
 
   // In transit and the arrival falls within this step → resolve it exactly at
   // the arrival instant, then hold there (the clock pauses for the dock).
@@ -242,16 +285,44 @@ export function shipPosition(game) {
 }
 
 /**
+ * The choice a headless caller makes when trouble finds it: the passive one it
+ * can actually take. Deliberately ordered from meekest outward, so an automated
+ * crossing never picks a fight it didn't have to.
+ */
+const PASSIVE_ORDER = ["ignore", "comply", "submit", "talk", "trade", "salvage", "help", "bribe", "flee", "fight"];
+const autoChoice = (encounterId) => {
+  const enc = ENCOUNTER_BY_ID[encounterId];
+  return PASSIVE_ORDER.find((a) => enc?.actions.includes(a)) || enc?.actions[0];
+};
+
+/**
  * TRAVEL — the headless, all-at-once version: launch, then run the clock
  * straight to arrival. Used by tests and any non-interactive caller; the UI
  * uses launch() + the animated clock instead. Same machinery, so the two can't
  * diverge.
+ *
+ * Encounters DO fire on this path — a headless crossing that skipped the risk
+ * layer would be a second, safer game. It simply makes the passive choice and
+ * records what happened in `events`, so a caller can see what the trip cost.
  */
-export function travel(game, destId) {
+export function travel(game, destId, { choose = autoChoice } = {}) {
   const l = launch(game, destId);
   if (l.error) return l;
-  const r = advanceTime(l.game, l.game.leg.arriveT);
-  return { game: r.game, arrived: r.arrived, spentFuel: l.game.leg.fuelCost, days: l.game.leg.days };
+  let g = l.game;
+  const events = [];
+  // Bounded: one encounter per leg today, so this loop can run at most twice.
+  for (let guard = 0; guard < 4; guard++) {
+    const r = advanceTime(g, g.leg ? g.leg.arriveT : g.t);
+    g = r.game;
+    if (r.arrived) return { game: g, arrived: r.arrived, spentFuel: l.game.leg.fuelCost, days: l.game.leg.days, events };
+    if (!g.encounter) break;
+    const res = resolveEncounter(g, choose(g.encounter.encounterId));
+    if (res.error) break;
+    events.push(res.outcome);
+    g = dismissEncounter(res.game);
+    if (g.over) return { game: g, over: g.over, events };
+  }
+  return { game: g, events };
 }
 
 // ---------------------------------------------------------------------------

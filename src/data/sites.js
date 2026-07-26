@@ -159,21 +159,35 @@ export const TECH_LEVELS = [
 
 /**
  * GOVERNMENT — who makes the rules at a port, keyed by its owner. Sets the
- * tariff (a cut on trade), how hard the law is enforced (`law`, 0..1 — feeds the
- * inspection encounters when they land), and the name of the local paper (for
- * the news feed). Descriptive today; the tariff and law wire into pricing and
- * enforcement as those systems arrive, so this is the hook, not dead flavour.
+ * tariff (a cut on trade), how hard the law is enforced (`law`, 0..1 — how often
+ * its patrols stop you, and how hard they are to talk around), which classes of
+ * controlled cargo it polices (`controls`, see CONTROLS in commodities.js), the
+ * `duty` it levies on them, and the name of the local paper.
+ *
+ * LAW AND DUTY ARE THE SAME AXIS SEEN TWICE. A strict public administration
+ * inspects often and charges little; a free port barely stops anyone. That's the
+ * real trade-off a smuggler weighs, and it falls straight out of these numbers
+ * rather than out of a difficulty setting.
  */
 export const GOVERNMENTS = {
   consortium:  { type: "Corporate charter", tariff: 0.12, law: 0.7, paper: "The Orbital Ledger",
+    controls: ["nuclear"], duty: 0.06,
     note: "Corporate order — trade is free but taxed, and the rules are enforced." },
   agency:      { type: "Public administration", tariff: 0.05, law: 0.85, paper: "The Agency Bulletin",
+    controls: ["nuclear", "pharma", "dual"], duty: 0.045,
     note: "Low tariffs, strict oversight, and thorough inspections." },
   corporate:   { type: "Company town", tariff: 0.15, law: 0.5, paper: "The Kestrel Dispatch",
+    controls: [], duty: 0,
     note: "High margins for the company, light law for everyone else." },
   independent: { type: "Free port", tariff: 0.03, law: 0.3, paper: "The Free Signal",
+    controls: [], duty: 0,
     note: "Nobody's in charge — cheap to trade, and you watch your own back." },
 };
 
 export const techOf = (site) => TECH_LEVELS[site?.techLevel] || TECH_LEVELS[3];
 export const govOf = (site) => GOVERNMENTS[site?.owner] || GOVERNMENTS.independent;
+
+/** Does this government police this commodity? (Its control class is on the
+ *  commodity; which classes are policed is on the government.) */
+export const controlsCommodity = (gov, commodity) =>
+  !!commodity?.control && (gov?.controls || []).includes(commodity.control);

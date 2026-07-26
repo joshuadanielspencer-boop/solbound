@@ -129,6 +129,44 @@ export const ENCOUNTER_BY_ID = Object.fromEntries(ENCOUNTERS.map((e) => [e.id, e
 // it. A pirate coast throws raiders; a patrolled lane throws inspections; a
 // trade league throws deals. Numbers are relative weights layered on each
 // encounter's base weight.
+// ---------------------------------------------------------------------------
+// THE POLICE RECORD — a consequence that outlives the encounter.
+//
+// Earned by RUNNING from a patrol or by a bribe that goes wrong, never by what's
+// in the hold (see CONTROLS in commodities.js — controlled cargo is legal cargo
+// that owes a duty). A record is sticky: it raises how often you're stopped and
+// how badly a stop goes, so an evasion you got away with today is a tax on every
+// crossing after it.
+// ---------------------------------------------------------------------------
+export const RECORDS = [
+  { id: "clean",  name: "Clean",     note: "No patrol has any reason to look twice at you." },
+  { id: "noted",  name: "Noted",     note: "A patrol logged you once. It follows you around." },
+  { id: "marked", name: "Marked",    note: "Customs pull you aside on principle now." },
+  { id: "wanted", name: "Wanted",    note: "Lawful ports want a word. Expect to be stopped, and searched." },
+];
+
+export const RECORD_BY_ID = Object.fromEntries(RECORDS.map((r) => [r.id, r]));
+export const recordIndex = (id) => Math.max(0, RECORDS.findIndex((r) => r.id === id));
+
+/** One step worse, stopping at the bottom of the ladder. */
+export const worsenRecord = (id, steps = 1) =>
+  RECORDS[Math.min(RECORDS.length - 1, recordIndex(id) + steps)].id;
+
+/**
+ * WHAT'S IN A WRECK. Salvage is weighted toward the dull and heavy, because
+ * that's what a wreck actually is — a ship, and ships are mostly structure. The
+ * jackpot (a crate of instruments) is deliberately rare, so "board the derelict"
+ * stays a gamble rather than a payday you'd plan a route around.
+ */
+export const SALVAGE_FINDS = [
+  { id: "parts",       weight: 3,   min: 1.5, max: 7,   text: "Hull plate and tankage, cut free and stacked." },
+  { id: "metal",       weight: 2.5, min: 1,   max: 6,   text: "Structural alloy, still good." },
+  { id: "propellant",  weight: 2,   min: 1,   max: 5,   text: "A part-full tank you can decant." },
+  { id: "lifesupport", weight: 1.5, min: 0.5, max: 3,   text: "Scrubber cartridges, sealed and unused." },
+  { id: "electronics", weight: 1,   min: 0.3, max: 2,   text: "Avionics crates nobody got back for." },
+  { id: "instruments", weight: 0.3, min: 0.1, max: 0.8, text: "A survey package worth more than the wreck around it." },
+];
+
 export const KIND_BIAS_BY_ARCHETYPE = {
   military_hostile: { hostile: 3, authority: 0.3, opportunity: 0.5, quiet: 0.5 },
   military_lawful:  { hostile: 0.3, authority: 3, opportunity: 0.7, quiet: 1 },

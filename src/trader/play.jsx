@@ -17,6 +17,7 @@ import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
+import { FACTION_BY_ID } from "../data/factions.js";
 import { runPlan, cargoValueAt } from "../intel.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
 import { fittedStats, MODULE_BY_ID, HULL_BY_ID } from "../data/hulls.js";
@@ -24,6 +25,9 @@ import { techOf } from "../data/sites.js";
 import { shipsForSale, modulesForSale, tradeInValue, repairCost } from "../shipyard.js";
 import { buyShip, fitModule, removeModule, repairHull } from "../shipyard.js";
 import { makeSave, serialize } from "../save.js";
+import { encounterView, resolveEncounter, dismissEncounter, controlledCargo } from "../encounters.js";
+import { RECORD_BY_ID } from "../data/encounters.js";
+import { govOf } from "../data/sites.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
   buy, sell, tankMax, RATES,
@@ -43,6 +47,7 @@ export default function Play({ game, setGame, onQuit }) {
 
   const flash = (text, kind = "ok") => setToast({ text, kind });
   const transit = game.status === "transit";
+  const stopped = !!game.encounter || !!game.over;   // the clock holds for both
 
   // ---- the living clock ---------------------------------------------------
   // setInterval, not requestAnimationFrame: rAF is throttled to zero in a hidden
@@ -50,29 +55,39 @@ export default function Play({ game, setGame, onQuit }) {
   // dt is measured from the wall clock, so a stalled tab slows the sim rather
   // than desynchronising it. The clock only runs while in transit.
   useEffect(() => {
-    if (!transit || RATES[game.rateIdx].days === 0) return;
+    if (!transit || stopped || RATES[game.rateIdx].days === 0) return;
     let last = performance.now();
     const id = setInterval(() => {
       const now = performance.now();
       const dt = Math.min(150, now - last);
       last = now;
       setGame((g) => {
-        if (g.status !== "transit") return g;
+        if (g.status !== "transit" || g.encounter || g.over) return g;
         const r = advanceTime(g, g.t + RATES[g.rateIdx].days * (dt / 1000) * DAY);
         if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
+        if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
         return r.game;
       });
     }, 33);
     return () => clearInterval(id);
-  }, [transit, game.rateIdx]);
+  }, [transit, stopped, game.rateIdx]);
 
   const setRate = (i) => setGame((g) => ({ ...g, rateIdx: i }));
   const skip = () => setGame((g) => {
-    if (g.status !== "transit") return g;
+    if (g.status !== "transit" || g.encounter || g.over) return g;
     const r = advanceTime(g, g.leg.arriveT);
     if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
+    if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
     return { ...r.game, rateIdx: 0 };
   });
+
+  // The encounter: choose, see what it cost, then get back under way.
+  const doChoose = (choice) => {
+    const r = resolveEncounter(game, choice);
+    if (r.error) return flash(r.error, "bad");
+    setGame(r.game);
+  };
+  const doDismiss = () => setGame((g) => dismissEncounter(g));
 
   const positions = useMemo(() => {
     const o = {};
@@ -133,7 +148,11 @@ export default function Play({ game, setGame, onQuit }) {
           <Orrery positions={positions} orbits={orbits} game={game} dest={dest} />
         </div>
         <aside style={S.panel} aria-live="polite">
-          {transit ? (
+          {game.over ? (
+            <GameOver game={game} onQuit={onQuit} />
+          ) : game.encounter ? (
+            <EncounterPanel game={game} onChoose={doChoose} onDismiss={doDismiss} />
+          ) : transit ? (
             <TransitPanel game={game} />
           ) : (
             <>
@@ -181,6 +200,13 @@ function Hud({ game, onQuit, setRate, skip, onDownload }) {
         <Hstat label="Hold" value={`${cargoUsed(p).toFixed(0)} / ${cargoCapacity(p).toFixed(0)} t`} />
         <Hstat label="Fuel" value={`${p.ship.fuelTonnes.toFixed(0)} / ${tankMax(p).toFixed(0)} t`}
           tone={p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined} />
+        {/* Hull is a live gauge now that something out there can open it up — and
+            a battered hull is what turns the next encounter fatal. */}
+        <Hstat label="Hull" value={`${p.ship.hullPct ?? 100}%`}
+          tone={(p.ship.hullPct ?? 100) < 50 ? "hot" : undefined} />
+        {p.record !== "clean" && (
+          <Hstat label="Record" value={RECORD_BY_ID[p.record]?.name || p.record} tone="hot" />
+        )}
         <Hstat label="Date" value={fmtDate(game.t)} />
       </div>
       {transit ? (
@@ -226,6 +252,8 @@ function TransitPanel({ game }) {
       <Row label="Time under way" value={fmtDur((game.t - leg.departT) / DAY)} />
       <Row label="Propellant burned" value={`${leg.fuelCost.toFixed(1)} t`} />
       <Row label="A message home takes" value={lag ? sayLightTime(lag) : "—"} hint="one way, at the speed of light" />
+      {/* A quiet leg still had something in it — it just wasn't worth stopping for. */}
+      {leg.quietNote && <p style={{ ...S.small, marginTop: 14, fontStyle: "italic" }}>{leg.quietNote}</p>}
       <p style={{ ...S.small, marginTop: 16 }}>
         The clock is running (top right). Speed it up, or skip straight to arrival.
         The market you're headed for is drifting while you fly — the prices won't be
@@ -241,6 +269,127 @@ const Row = ({ label, value, hint }) => (
     {hint && <div style={S.small}>{hint}</div>}
   </div>
 );
+
+// ---------------------------------------------------------------------------
+// The encounter — the one screen where the clock stops for a decision.
+//
+// Two states in one panel: the CHOICE (what's happening, what you're carrying,
+// what each option would mean) and then the OUTCOME (what it cost, itemised).
+// The outcome lives on the game rather than in component state, so a refresh
+// mid-encounter shows the same result instead of quietly rerolling it.
+// ---------------------------------------------------------------------------
+function EncounterPanel({ game, onChoose, onDismiss }) {
+  const view = encounterView(game);
+  if (!view) return null;
+  const { encounter: enc, faction, actions, controlled, outcome, gov } = view;
+  const kindTone = { hostile: "var(--hot)", authority: "#7FB2CE", opportunity: "#3E9B6E", quiet: "var(--muted)" }[enc.kind];
+  const kindWord = { hostile: "Hostile", authority: "Authority", opportunity: "Opportunity", quiet: "Quiet" }[enc.kind];
+  const p = game.player;
+
+  return (
+    <div style={{ overflowY: "auto", padding: "18px 18px 24px" }}>
+      <div style={{ ...S.encKind, color: kindTone, borderColor: kindTone }}>⚠ {kindWord} · encounter</div>
+      <div style={S.encTitle}>{enc.title}</div>
+      <div style={S.encText}>{enc.text}</div>
+
+      {faction?.faction && (
+        <div style={S.encWho}>
+          <b>{faction.faction.name}</b> — you stand at {faction.standing > 0 ? "+" : ""}{faction.standing} with them.
+        </div>
+      )}
+
+      {controlled && (
+        <div style={{ ...S.encWho, borderColor: controlled.any ? "var(--hot)" : "var(--line)" }}>
+          {controlled.any ? (
+            <>
+              <b>{gov.type}</b> polices your hold: {controlled.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(", ")}.
+              Declared, the duty comes to <b>{money(controlled.duty)}</b>.
+            </>
+          ) : (
+            <><b>{gov.type}</b>, and nothing in your hold is theirs to want. Complying costs you time, and nothing else.</>
+          )}
+        </div>
+      )}
+
+      <div style={S.encStatus}>
+        <span>Hull {p.ship.hullPct ?? 100}%</span>
+        <span>Hold {cargoUsed(p).toFixed(1)} t</span>
+        <span>Fuel {p.ship.fuelTonnes.toFixed(1)} t</span>
+        <span>{money(p.credits)}</span>
+      </div>
+
+      {!outcome ? (
+        <>
+          <div style={S.encPrompt}>What do you do?</div>
+          {actions.map((a) => (
+            <button key={a.id} style={S.encBtn} onClick={() => onChoose(a.id)}>
+              <b>{a.label}</b>
+              <div style={S.small}>{a.note}</div>
+            </button>
+          ))}
+        </>
+      ) : (
+        <>
+          <div style={{ ...S.encResult, borderColor: outcome.won ? "#3E9B6E" : "var(--hot)" }}>
+            <div style={{ ...S.encHeadline, color: outcome.won ? "#3E9B6E" : "var(--hot)" }}>{outcome.headline}</div>
+            <div style={S.encText}>{outcome.detail}</div>
+            <EffectList game={game} effects={outcome.effects} />
+          </div>
+          <button style={S.goBtn} onClick={onDismiss}>
+            {game.over ? "…" : "Back under way"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** What it cost, itemised — consequences you can read at a glance. */
+function EffectList({ game, effects: e }) {
+  const lines = [];
+  if (e.credits) lines.push([e.credits > 0 ? "Credits gained" : "Credits lost", money(Math.abs(e.credits)), e.credits > 0]);
+  for (const [id, qty] of Object.entries(e.cargoLost || {})) lines.push([`${COMMODITY_BY_ID[id]?.name} taken`, `${qty} t`, false]);
+  for (const [id, qty] of Object.entries(e.cargoGained || {})) lines.push([`${COMMODITY_BY_ID[id]?.name} aboard`, `${qty} t`, true]);
+  if (e.hullDamage) lines.push(["Hull damage", `−${e.hullDamage} points`, false]);
+  if (e.fuelTonnes) lines.push(["Propellant burned", `${Math.abs(e.fuelTonnes).toFixed(1)} t`, false]);
+  if (e.days) lines.push(["Days lost", `${e.days}`, false]);
+  for (const [fid, d] of Object.entries(e.standing || {})) {
+    lines.push([`Standing with ${FACTION_BY_ID[fid]?.name || fid}`, `${d > 0 ? "+" : ""}${d}`, d > 0]);
+  }
+  if (e.record) lines.push(["Police record", RECORD_BY_ID[e.record]?.name || e.record, false]);
+  if (!lines.length) return <div style={{ ...S.small, marginTop: 8 }}>Nothing lost but the time it took.</div>;
+  return (
+    <div style={{ marginTop: 10 }}>
+      {lines.map(([label, value, good], i) => (
+        <div key={i} style={S.intelRow}>
+          <span style={S.small}>{label}</span>
+          <span style={{ color: good ? "#3E9B6E" : "var(--hot)", fontWeight: 600 }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The run ends here. Honest about it, and offers the only thing left to do. */
+function GameOver({ game, onQuit }) {
+  return (
+    <div style={{ padding: "24px 18px" }}>
+      <div style={{ ...S.encKind, color: "var(--hot)", borderColor: "var(--hot)" }}>The run ends here</div>
+      <div style={S.encTitle}>{game.over.headline}</div>
+      <div style={S.encText}>{game.over.detail}</div>
+      <div style={S.hr} />
+      <Row label="Captain" value={game.player.name} />
+      <Row label="Last seen" value={fmtDate(game.over.t)} />
+      <Row label="Credits" value={money(game.player.credits)} />
+      <Row label="Ports visited" value={`${game.visited.length}`} />
+      <p style={{ ...S.small, marginTop: 16 }}>
+        A hull that has already been opened up does not survive a second fight. The Ship Yard
+        repairs damage; the trick is going there before the next crossing, not after.
+      </p>
+      <button style={S.goBtn} onClick={onQuit}>New captain</button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Dock
@@ -372,6 +521,7 @@ function Travel({ game, dest, setDest, onGo }) {
             {on && (
               <div style={S.destOpen}>
                 <div style={S.small}>{site.why}</div>
+                <CustomsWarning game={game} site={site} />
                 <MarketIntel game={game} toId={site.id}
                   shippingPerTonne={cost.fuelTonnes && cargoUsed(game.player) ? (cost.fuelTonnes * (fuelPrice(game) || 1200)) / Math.max(1, cargoUsed(game.player)) : 0} />
                 {cost.reachable
@@ -384,6 +534,24 @@ function Travel({ game, dest, setDest, onGo }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * What the port ahead will want to see. Shown BEFORE you commit, because a cost
+ * you can only discover by being stopped is a gotcha, not a decision — and the
+ * whole point is that you weigh the duty against the profit while plotting.
+ */
+function CustomsWarning({ game, site }) {
+  const gov = govOf(site);
+  const owed = controlledCargo(game.player, gov);
+  if (!owed.any) return null;
+  return (
+    <div style={S.customs}>
+      <b>{gov.type}</b> — this port polices controlled cargo.
+      You are carrying {owed.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")};
+      declared at inspection the duty is about <b>{money(owed.duty)}</b>. Legal, and not cheap.
     </div>
   );
 }
@@ -650,6 +818,16 @@ const S = {
   tab: { flex: 1, background: "var(--panel-2)", border: "none", padding: "12px", cursor: "pointer", fontSize: 14, color: "var(--muted)" },
   tabOn: { background: "var(--panel)", color: "var(--gold)", fontWeight: 700, boxShadow: "inset 0 -2px 0 var(--gold)" },
 
+  encKind: { display: "inline-block", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1.2, border: "1px solid", borderRadius: 10, padding: "2px 9px", marginBottom: 12 },
+  encTitle: { fontSize: 20, fontWeight: 700, lineHeight: 1.3, marginBottom: 8 },
+  encText: { fontSize: 13.5, color: "#CDD5E4", lineHeight: 1.6 },
+  encWho: { marginTop: 12, padding: "9px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.55 },
+  encStatus: { display: "flex", flexWrap: "wrap", gap: 12, margin: "14px 0", padding: "9px 0", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", fontSize: 12.5, color: "#CDD5E4", fontVariantNumeric: "tabular-nums" },
+  encPrompt: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", margin: "4px 0 8px" },
+  encBtn: { width: "100%", textAlign: "left", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "10px 13px", marginBottom: 7, cursor: "pointer", color: "var(--text)", fontSize: 14 },
+  encResult: { padding: "12px 14px", background: "#0B111C", border: "1px solid", borderRadius: 10, marginBottom: 12 },
+  encHeadline: { fontSize: 16, fontWeight: 700, marginBottom: 6 },
+
   transitHead: { fontSize: 12, textTransform: "uppercase", letterSpacing: 1.5, color: "var(--gold)", marginBottom: 10 },
   route: { fontSize: 20, fontWeight: 700, marginBottom: 14 },
   arrow: { color: "var(--muted)" },
@@ -706,6 +884,7 @@ const S = {
   destOpen: { padding: "0 13px 12px" },
   warnLine: { fontSize: 12, color: "var(--hot)", lineHeight: 1.5, marginTop: 6 },
 
+  customs: { margin: "10px 0 0", padding: "9px 11px", background: "rgba(127,178,206,0.08)", border: "1px solid rgba(127,178,206,0.4)", borderRadius: 8, fontSize: 12, lineHeight: 1.55 },
   intel: { margin: "10px 0 4px", padding: "10px 12px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8 },
   intelHead: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 8 },
   freshTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, border: "1px solid", borderRadius: 10, padding: "1px 7px" },

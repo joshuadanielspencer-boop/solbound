@@ -28,6 +28,52 @@
 // than ice is real, and is why the one ships and the other never does.
 // ===========================================================================
 
+/**
+ * CONTROLLED GOODS — the cargo customs cares about.
+ *
+ * ⚠ The categories are REAL (design.md §16 — this is fact, not invention). Two
+ * classes of goods are controlled almost everywhere on Earth today, and for
+ * reasons that don't stop applying in space:
+ *
+ *   • nuclear — reactor hardware is safeguarded under the Nuclear
+ *     Non-Proliferation Treaty and traded only under licence between states that
+ *     have signed up to inspection. Nobody ships a reactor core unannounced.
+ *   • pharma — prescription medicine crosses borders under licence, and an
+ *     unlicensed consignment is seized by customs as a matter of routine.
+ *   • dual — advanced electronics are the most export-controlled category of
+ *     goods on Earth today, because the same processor runs a hospital scanner
+ *     and a guidance package. "Dual-use" is the actual term of art.
+ *
+ * The third one is also what makes this layer arrive in time to matter: reactor
+ * parts and medicine cost millions a tonne, so a captain meets customs for the
+ * first time around their first serious electronics run, not in hour forty.
+ *
+ * What the GAME does with that is a deliberate simplification, and it matters
+ * that it's the mild one: these goods are LEGAL to carry and legal to sell — the
+ * colonies that need them are exactly the ones that import them. What a strict
+ * government wants is its paperwork and its duty. So an inspection is a toll on
+ * the most valuable thing in your hold, not a criminal charge; the police record
+ * is earned by RUNNING from the patrol, not by hauling what Mars ordered.
+ *
+ * That keeps the law layer honest (customs duty on high-value dual-use cargo is
+ * a real thing) and keeps it from being absurd (a game where delivering medicine
+ * to a colony is a crime teaches the wrong thing).
+ */
+export const CONTROLS = {
+  nuclear: {
+    name: "Nuclear-regulated",
+    note: "Reactor hardware moves under safeguards and inspection. Strict ports want the paperwork and their duty.",
+  },
+  pharma: {
+    name: "Pharmaceutical-controlled",
+    note: "Medicine crosses jurisdictions under licence. An undeclared hold of it is a customs matter.",
+  },
+  dual: {
+    name: "Dual-use",
+    note: "The same processor flies a survey drone or a weapon. Strict administrations want to know which.",
+  },
+};
+
 export const TIERS = {
   raw:        { name: "Raw",        note: "Extracted from a body. Too cheap to ship — make it where you need it." },
   refined:    { name: "Refined",    note: "Processed from raw. Needs power more than it needs skill." },
@@ -99,19 +145,19 @@ export const COMMODITIES = [
   // ---- ADVANCED — Earth, for a long time --------------------------------
   {
     id: "electronics", name: "Electronics", tier: "advanced", unit: "t",
-    valuePerTonne: 640000,
+    valuePerTonne: 640000, control: "dual",
     note: "Processors, sensors, avionics. Fabrication needs a supply chain nowhere else has.",
     lesson: "The classic dependency. A colony can make its own air long before it makes its own chips.",
   },
   {
     id: "reactorparts", name: "Reactor components", tier: "advanced", unit: "t",
-    valuePerTonne: 1400000,
+    valuePerTonne: 1400000, control: "nuclear",
     note: "Fission plant: the only power worth having past Mars, where sunlight is 1/27th of Earth's.",
     lesson: "The outer system runs on these, and the outer system cannot make them. That is the whole trade route.",
   },
   {
     id: "medical", name: "Medicine", tier: "advanced", unit: "t",
-    valuePerTonne: 2800000,
+    valuePerTonne: 2800000, control: "pharma",
     note: "Pharmaceuticals and clinical supplies. Light, urgent, and impossible to improvise.",
   },
   {

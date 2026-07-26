@@ -36,6 +36,9 @@ export default function Trader() {
   const lastSig = useRef(null);
   useEffect(() => {
     if (phase !== "play" || !game) return;
+    // A run that ended is not resumable — leaving it in the autosave would make
+    // Continue reopen a wreck. The player still sees the ending in this session.
+    if (game.over) { clearSave(); setSaveExists(false); return; }
     const sig = saveSig(game);
     if (sig === lastSig.current) return;      // only a tick happened; skip
     lastSig.current = sig;

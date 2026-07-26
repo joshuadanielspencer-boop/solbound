@@ -23,7 +23,7 @@
 // the same two-tier approach Shutterbug settled on for its passport.
 // ===========================================================================
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -92,6 +92,22 @@ const MIGRATIONS = {
     const ship = save.state?.player?.ship;
     if (ship && ship.hullPct === undefined) ship.hullPct = 100;
     save.version = 3;
+    return save;
+  },
+  // v3 → v4: the encounter layer. Old saves have no roll cursor and no pending
+  // encounter. Defaulting the cursor to 0 is safe BECAUSE the cursor is only
+  // ever used with the seed to key a roll — an old save resumes with the same
+  // world and simply starts its encounter sequence from the beginning. A leg
+  // already under way when the save was made has no rolled event, so that one
+  // crossing is quiet; every leg after it rolls normally.
+  3: (save) => {
+    const s = save.state;
+    if (s) {
+      if (s.rollCursor === undefined) s.rollCursor = 0;
+      if (s.encounter === undefined) s.encounter = null;
+      if (s.player && !s.player.record) s.player.record = "clean";
+    }
+    save.version = 4;
     return save;
   },
 };

@@ -14,8 +14,26 @@ import {
 } from "../src/tradergame.js";
 import { newPlayer, cargoUsed } from "../src/player.js";
 import { defaultSkills } from "../src/data/captain.js";
+import { resolveEncounter, dismissEncounter } from "../src/encounters.js";
+import { ENCOUNTER_BY_ID } from "../src/data/encounters.js";
 
 const freshGame = (over = {}) => newGame(newPlayer({ name: "Vega", skills: defaultSkills(), ...over }));
+
+/**
+ * Fly on through whatever the risk layer throws. The encounter tests are in
+ * test/encounters.js; these tests are about the CLOCK, and the clock now has a
+ * second reason to stop besides arrival — so they have to step over it rather
+ * than pretend transits are empty.
+ */
+const flyOn = (g) => {
+  const enc = ENCOUNTER_BY_ID[g.encounter.encounterId];
+  return dismissEncounter(resolveEncounter(g, enc.actions[0]).game);
+};
+const advanceThrough = (g, toT) => {
+  let r = advanceTime(g, toT);
+  while (r.game.encounter) r = advanceTime(flyOn(r.game), toT);
+  return r;
+};
 
 describe("a starter captain has a real first move", () => {
   it("can reach the Moon and Mars with an empty hold, but not the outer system", () => {
@@ -143,7 +161,7 @@ describe("the living clock — launch, fly, arrive", () => {
     const mid = game.t + (game.leg.arriveT - game.t) / 2;
 
     // Halfway: still flying, and genuinely between the two orbits, not teleporting.
-    const midway = advanceTime(game, mid);
+    const midway = advanceThrough(game, mid);
     expect(midway.arrived).toBeUndefined();
     const pos = shipPosition(midway.game);
     expect(pos.f).toBeGreaterThan(0.4).toBeLessThan(0.6);
@@ -151,7 +169,7 @@ describe("the living clock — launch, fly, arrive", () => {
     expect(pos.r).toBeLessThan(midway.game.leg.r2);
 
     // Push past arrival: it resolves exactly at the arrival instant and pauses.
-    const done = advanceTime(midway.game, game.leg.arriveT + 999 * 86400000);
+    const done = advanceThrough(midway.game, game.leg.arriveT + 999 * 86400000);
     expect(done.arrived).toBe("Jezero Station");
     expect(done.game.status).toBe("docked");
     expect(done.game.player.at).toBe("jezero-station");
