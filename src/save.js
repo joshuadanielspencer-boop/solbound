@@ -23,7 +23,7 @@
 // the same two-tier approach Shutterbug settled on for its passport.
 // ===========================================================================
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -85,6 +85,13 @@ const MIGRATIONS = {
   1: (save) => {
     if (save.state?.player && !save.state.player.costBasis) save.state.player.costBasis = {};
     save.version = 2;
+    return save;
+  },
+  // v2 → v3: hull integrity. Old ships have no hullPct; default them to pristine.
+  2: (save) => {
+    const ship = save.state?.player?.ship;
+    if (ship && ship.hullPct === undefined) ship.hullPct = 100;
+    save.version = 3;
     return save;
   },
 };

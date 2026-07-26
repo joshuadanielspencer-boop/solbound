@@ -20,30 +20,35 @@
 export const HULLS = [
   {
     id: "courier", name: "Courier", emoji: "✉️",
+    minTech: 1,
     price: 90000,
     dryTonnes: 8, cargoTonnes: 12, fuelTonnes: 30, slots: 2, crew: 1,
     note: "Light and thirsty for its size — carries little but goes far. The starter, and a lifelong runner of small high-value cargo.",
   },
   {
     id: "clipper", name: "Clipper", emoji: "⛵",
+    minTech: 3,
     price: 240000,
     dryTonnes: 18, cargoTonnes: 40, fuelTonnes: 60, slots: 3, crew: 2,
     note: "The honest middle: enough hold to matter, enough tank to reach Mars, enough slots to specialise.",
   },
   {
     id: "freighter", name: "Freighter", emoji: "📦",
+    minTech: 5,
     price: 620000,
     dryTonnes: 55, cargoTonnes: 140, fuelTonnes: 130, slots: 4, crew: 4,
     note: "A lot of hold. All that mass costs Δv to move, so it lives on cheap short hops and depot fuel — the rocket equation, felt.",
   },
   {
     id: "prospector", name: "Prospector", emoji: "⛏",
+    minTech: 4,
     price: 380000,
     dryTonnes: 30, cargoTonnes: 55, fuelTonnes: 90, slots: 4, crew: 3,
     note: "Built to go out and come back with something. Extra slots for mining and survey gear, a big tank for the reach.",
   },
   {
     id: "cutter", name: "Cutter", emoji: "🎯",
+    minTech: 4,
     price: 300000,
     dryTonnes: 22, cargoTonnes: 20, fuelTonnes: 70, slots: 4, crew: 3,
     note: "Fast, tough, and short on hold. An escort and a bounty-hunter's ship — the one that goes looking for the fight.",
@@ -51,6 +56,11 @@ export const HULLS = [
 ];
 
 export const HULL_BY_ID = Object.fromEntries(HULLS.map((h) => [h.id, h]));
+
+/** What a ship fetches when traded in — you never get full price back for a used
+ *  hull, which makes buying up a real commitment rather than a free swap. */
+export const HULL_RESALE = 0.7;
+export const MODULE_RESALE = 0.5;
 
 /** The ship every new captain starts in. */
 export const STARTER_HULL = "courier";

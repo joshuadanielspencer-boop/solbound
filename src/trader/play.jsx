@@ -19,6 +19,10 @@ import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } fr
 import { factionAt } from "../factions.js";
 import { runPlan, cargoValueAt } from "../intel.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
+import { fittedStats, MODULE_BY_ID, HULL_BY_ID } from "../data/hulls.js";
+import { techOf } from "../data/sites.js";
+import { shipsForSale, modulesForSale, tradeInValue, repairCost } from "../shipyard.js";
+import { buyShip, fitModule, removeModule, repairHull } from "../shipyard.js";
 import { makeSave, serialize } from "../save.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
@@ -101,6 +105,12 @@ export default function Play({ game, setGame, onQuit }) {
   };
   const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
 
+  // Ship-yard actions.
+  const doBuyShip = (hullId) => { const r = buyShip(game, game.player.at, hullId); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(r.net >= 0 ? `Traded up to a ${r.hullName} for ${money(r.net)}.` : `Traded down to a ${r.hullName}, ${money(-r.net)} back.`); };
+  const doFit = (id) => { const r = fitModule(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Fitted a ${r.fitted} for ${money(r.spent)}.`); };
+  const doRemove = (id) => { const r = removeModule(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Removed the ${r.removed}, ${money(r.refund)} back.`); };
+  const doRepair = () => { const r = repairHull(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Repaired ${r.repaired} points of hull for ${money(r.cost)}.`); };
+
   // Download the current game as a file — survives a cleared cache and moves
   // between machines, the same escape hatch Shutterbug's passport has. The
   // filename carries the captain and date so a folder of saves is legible.
@@ -129,11 +139,12 @@ export default function Play({ game, setGame, onQuit }) {
             <>
               <div style={S.tabs}>
                 <button style={{ ...S.tab, ...(mode === "dock" ? S.tabOn : null) }} onClick={() => setMode("dock")}>⚓ Dock</button>
-                <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Plot a course</button>
+                <button style={{ ...S.tab, ...(mode === "yard" ? S.tabOn : null) }} onClick={() => setMode("yard")}>🔧 Yard</button>
+                <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
               </div>
-              {mode === "dock"
-                ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
-                : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
+              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
+                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} />
+                  : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
             </>
           )}
         </aside>
@@ -378,6 +389,81 @@ function Travel({ game, dest, setDest, onGo }) {
 }
 
 // ---------------------------------------------------------------------------
+// The Ship Yard — repair, fit modules, trade up (tech-gated). Where money goes.
+// ---------------------------------------------------------------------------
+function Yard({ game, onBuyShip, onFit, onRemove, onRepair }) {
+  const p = game.player;
+  const site = SITE_BY_ID[p.at];
+  const stats = fittedStats(p.ship.hull, p.ship.modules);
+  const hull = HULL_BY_ID[p.ship.hull];
+  const dmg = 100 - (p.ship.hullPct ?? 100);
+  const repair = repairCost(game);
+  const ships = shipsForSale(game, p.at);
+  const mods = modulesForSale(game);
+  const yardTech = techOf(site);
+
+  return (
+    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
+      <div style={S.siteName}>Ship Yard</div>
+      <div style={S.why}>{yardTech.name} yard — {yardTech.note} Trade-in on your {hull.name}: {money(tradeInValue(p.ship))}.</div>
+
+      {/* Current ship */}
+      <div style={S.yardCard}>
+        <div style={S.yardTop}><b>{hull.emoji} {p.ship.name}</b><span style={S.small}>{hull.name}</span></div>
+        <div style={S.yardStats}>
+          <span>Hold {stats.cargoTonnes} t</span>
+          <span>Tank {stats.fuelTonnes} t</span>
+          <span>Slots {p.ship.modules.length}/{stats.slots}</span>
+          <span style={{ color: dmg > 0 ? "var(--hot)" : "#3E9B6E" }}>Hull {p.ship.hullPct ?? 100}%</span>
+        </div>
+        {dmg > 0
+          ? <button style={S.yardBtn} onClick={onRepair}>Repair hull — {money(repair)}</button>
+          : <div style={{ ...S.small, marginTop: 6 }}>Hull sound. No repairs needed.</div>}
+      </div>
+
+      {/* Fitted modules */}
+      <div style={S.yardHead}>Fittings ({p.ship.modules.length}/{stats.slots} slots)</div>
+      {p.ship.modules.length === 0 && <div style={{ ...S.small, padding: "0 18px 6px" }}>Nothing fitted. Add capability below.</div>}
+      {p.ship.modules.map((id) => (
+        <div key={id} style={S.modRow}>
+          <div><b>{MODULE_BY_ID[id].emoji} {MODULE_BY_ID[id].name}</b><div style={S.small}>{MODULE_BY_ID[id].note}</div></div>
+          <button style={S.modBtn} onClick={() => onRemove(id)}>Remove</button>
+        </div>
+      ))}
+
+      {/* Modules for sale */}
+      <div style={S.yardHead}>Fit a module</div>
+      {mods.filter((m) => !m.fitted).map(({ module, canFit, slotsFree }) => (
+        <div key={module.id} style={S.modRow}>
+          <div><b>{module.emoji} {module.name}</b> <span style={S.small}>{money(module.price)}</span><div style={S.small}>{module.note}</div></div>
+          <button style={{ ...S.modBtn, opacity: canFit ? 1 : 0.4 }} disabled={!canFit}
+            onClick={() => onFit(module.id)}>{slotsFree <= 0 ? "No slot" : "Fit"}</button>
+        </div>
+      ))}
+
+      {/* Ships for sale */}
+      <div style={S.yardHead}>Ships for sale</div>
+      {ships.map(({ hull: h, owned, net, affordable, cargoFits }) => (
+        <div key={h.id} style={{ ...S.shipRow, ...(owned ? S.shipOwned : null) }}>
+          <div style={{ flex: 1 }}>
+            <div><b>{h.emoji} {h.name}</b> {owned && <span style={S.ownedTag}>current</span>}</div>
+            <div style={S.small}>hold {h.cargoTonnes} t · tank {h.fuelTonnes} t · {h.slots} slots</div>
+            <div style={S.shipNote}>{h.note}</div>
+          </div>
+          {owned ? <span style={S.small}>—</span>
+            : <button style={{ ...S.shipBuyBtn, opacity: affordable && cargoFits ? 1 : 0.4 }}
+                disabled={!affordable || !cargoFits}
+                onClick={() => onBuyShip(h.id)}
+                title={!cargoFits ? "Your cargo won't fit — sell some first" : ""}>
+                {net >= 0 ? money(net) : `+${money(-net)}`}
+              </button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // System Info — the character of a port (tech, government, danger, pressure).
 // ---------------------------------------------------------------------------
 function SystemInfoBlock({ game, siteId }) {
@@ -588,6 +674,18 @@ const S = {
   fuelBox: { margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
   fuelHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 8 },
   marketHead: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "10px 18px 6px" },
+  yardCard: { margin: "0 18px 6px", padding: "12px 14px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
+  yardTop: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 },
+  yardStats: { display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12.5, color: "#CDD5E4", fontVariantNumeric: "tabular-nums" },
+  yardBtn: { marginTop: 10, width: "100%", background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "8px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  yardHead: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "14px 18px 6px" },
+  modRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8 },
+  modBtn: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontSize: 12, flexShrink: 0 },
+  shipRow: { display: "flex", alignItems: "center", gap: 10, margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8 },
+  shipOwned: { borderColor: "var(--gold)" },
+  ownedTag: { fontSize: 10, color: "var(--gold)", border: "1px solid var(--gold)", borderRadius: 10, padding: "1px 7px", marginLeft: 6 },
+  shipNote: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 3 },
+  shipBuyBtn: { background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, flexShrink: 0, fontVariantNumeric: "tabular-nums" },
   mrow: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", background: "none", border: "1px solid transparent", borderRadius: 8, cursor: "pointer", color: "var(--text)", textAlign: "left" },
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
   held: { color: "var(--gold)", fontSize: 12 },
