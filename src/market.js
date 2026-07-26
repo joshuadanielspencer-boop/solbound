@@ -157,26 +157,49 @@ export function listing(market, site) {
   }).sort((a, b) => a.base - b.base);
 }
 
+/** How fast an unattended market drifts back to its natural level. A ~60-day
+ *  half-life: quick enough that a shortage you supply eases within a season,
+ *  slow enough that a real imbalance is worth crossing space for. */
+const REVERSION_HALFLIFE = 60;
+
 /**
- * Advance every market by `days`.
+ * The stock level a site settles at when left alone — its equilibrium, set by
+ * the background economy nobody sees. A producer sits in surplus; an importer
+ * sits in a CHRONIC SHORTAGE (elevated price) but never starves to zero.
  *
- * Production adds, consumption removes, and stock is clamped at zero and at
- * storage capacity. Because price is derived from stock rather than accumulated,
- * this cannot drift — the worst a bad tick can do is empty a warehouse.
+ * This is the fix for the long-haul jackpot: without it, a consuming frontier
+ * drifted to empty over a months-long transit and hit the price ceiling, so
+ * every delivery there was a windfall. With it, an unattended importer stabilises
+ * at a sensible shortage, and the player's edge is catching TEMPORARY swings —
+ * or a faction-driven crisis — not the permanent starvation of an idle market.
+ */
+export function equilibriumStock(site, commodityId) {
+  const nominal = nominalStock(site, commodityId);
+  const c = COMMODITY_BY_ID[commodityId];
+  const makes = site.produces.includes(commodityId)
+    || ((site.makes || []).includes(c?.tier) && !site.consumes.includes(commodityId));
+  if (makes) return nominal * 1.4;                 // steady surplus
+  if (site.consumes.includes(commodityId)) return nominal * 0.55;  // steady import shortage
+  return nominal;
+}
+
+/**
+ * Advance every market by `days`, mean-reverting each stock toward its
+ * equilibrium (see equilibriumStock). Because price is a function of stock, the
+ * market can never spiral — and now it can't be starved into a jackpot either.
+ * Linear in the reverted fraction, so stepping the clock in many small ticks
+ * lands within rounding of one big jump (a test pins this).
  */
 export function advanceMarkets(markets, days) {
+  const frac = 1 - Math.pow(0.5, days / REVERSION_HALFLIFE);
   const out = {};
   for (const site of SITES) {
     const m = markets[site.id];
     if (!m) continue;
     const stock = { ...m.stock };
     for (const id of Object.keys(stock)) {
-      const nominal = nominalStock(site, id);
-      const delta = (dailyProduction(site, id) - dailyConsumption(site, id)) * days;
-      // Capacity is 4x nominal: a site cannot hoard forever, which stops
-      // producers accumulating infinite stock and driving their own price to
-      // the floor permanently.
-      stock[id] = Math.max(0, Math.min(nominal * 4, stock[id] + delta));
+      const eq = equilibriumStock(site, id);
+      stock[id] = Math.max(0, stock[id] + (eq - stock[id]) * frac);
     }
     out[site.id] = { ...m, stock };
   }

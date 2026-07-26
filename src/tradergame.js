@@ -24,7 +24,7 @@ import { SITE_BY_ID, SITES } from "./data/sites.js";
 import { SYSTEM_BY_ID } from "./data/bodies.js";
 import { DRIVES } from "./propulsion.js";
 import { propellantFor, massRatio } from "./propulsion.js";
-import { transferOptions, transferPosition } from "./transfer.js";
+import { transferOptions, transferPosition, hohmann } from "./transfer.js";
 import { heliocentric } from "./ephemeris.js";
 import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
@@ -55,9 +55,11 @@ const INTRA_SYSTEM_DV = 1.2;    // km/s
 const INTRA_SYSTEM_DAYS = 6;
 
 /** Bodies with enough atmosphere to brake against on arrival, which is nearly
- *  free Δv. This is why Mars and Titan are cheaper to arrive at than airless
- *  rocks — a real and counterintuitive fact worth teaching. */
-const AEROBRAKE = { earth: 0.85, mars: 0.6, venus: 0.7 };  // fraction of arrival Δv waived
+ *  free Δv. This is why Mars and Venus are cheaper to REACH than airless rocks
+ *  despite being real distances — a genuinely counterintuitive true thing, and
+ *  the thing that makes a starter cargo run to Mars feasible at all. Fraction of
+ *  the arrival burn an atmosphere lets you shed. */
+const AEROBRAKE = { earth: 0.85, mars: 0.85, venus: 0.9 };
 
 export function newGame(player, seed = 1) {
   const factions = spawnFactions(seed);
@@ -109,11 +111,18 @@ export function travelCost(game, destId) {
   } else {
     const a = SYSTEM_BY_ID[from.system], b = SYSTEM_BY_ID[to.system];
     if (!a?.ephemerisKey || !b?.ephemerisKey) return null;
-    const opt = transferOptions(a.ephemerisKey, b.ephemerisKey, new Date(game.t)).goNow;
-    // Aerobraking waives part of the arrival burn at bodies with an atmosphere.
+    // Minimum-energy transfer between the two orbits at their current radii.
+    const ra = heliocentric(a.ephemerisKey, new Date(game.t)).r;
+    const rb = heliocentric(b.ephemerisKey, new Date(game.t)).r;
+    const h = hohmann(ra, rb);
     const brake = AEROBRAKE[to.system] || 0;
-    dvKms = opt.dv * (1 - brake * 0.5);   // arrival is ~half the total; discount that half
-    days = opt.days;
+    // The DEPARTURE burn is unavoidable; the ARRIVAL burn is what an atmosphere
+    // lets you brake away for nearly free. Magnitudes, because an inward transfer
+    // (to Venus) has negative signed burns. Ideal Hohmann (no window penalty) so
+    // a route's cost is predictable rather than swinging with the date — the
+    // launch-window trade can return later as a discount, not a confusing tax.
+    dvKms = Math.abs(h.dv1) + Math.abs(h.dv2) * (1 - brake);
+    days = h.days;
   }
 
   const fuelTonnes = propellantFor(wetDry, dvKms, drive.isp);
