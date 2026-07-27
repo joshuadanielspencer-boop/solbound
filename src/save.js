@@ -27,7 +27,7 @@ import { initialMarkets } from "./market.js";
 import { marketMods } from "./factions.js";
 import { CORE_SITES } from "./data/sites.js";
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -187,6 +187,18 @@ const MIGRATIONS = {
       if (!Array.isArray(s.surveyed)) s.surveyed = [];
     }
     save.version = 8;
+    return save;
+  },
+  // v8 → v9: the reputation ledger. An older save's standing numbers are real —
+  // they were written onto `factions` all along — but nothing recorded how they
+  // got there, and that history cannot be reconstructed (the encounters that
+  // moved them are gone). So the ledger starts empty and fills from here on,
+  // which is the honest reading: the standing screen shows the right numbers
+  // with no receipts before this point, rather than inventing receipts.
+  8: (save) => {
+    const s = save.state;
+    if (s && !Array.isArray(s.repLog)) s.repLog = [];
+    save.version = 9;
     return save;
   },
 };

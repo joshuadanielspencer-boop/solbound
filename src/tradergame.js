@@ -97,6 +97,10 @@ export function newGame(player, seed = 1) {
     rollCursor: 0,
     encounter: null,
     factions,                                   // the roguelike draw for this run
+    // Standing moves during encounters and is written back onto `factions`; this
+    // is the receipt for each move (reputation.js), so the standing screen can
+    // say what it TOOK as well as where you ended up.
+    repLog: [],
     visited: [player.at],
     log: [`${player.name} takes command of the ${player.ship.name} at ${sites.find((s) => s.id === player.at)?.name}.`],
     brief: worldBrief(factions),                // "who's out there" for the opening

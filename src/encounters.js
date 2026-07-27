@@ -50,6 +50,7 @@ import { cargoUsed, cargoCapacity } from "./player.js";
 import { effectiveSkills } from "./crew.js";
 import { STARTER_HULL } from "./data/hulls.js";
 import { seeded } from "./rng.js";
+import { standingTalkBonus, repEntries, appendRepLog } from "./reputation.js";
 
 const DAY = 86400000;
 
@@ -595,8 +596,10 @@ const HANDLERS = {
   talk(enc, ctx) {
     const { player, rng } = ctx;
     const e = blank();
+    // The one thing standing BUYS today, and it is owned by reputation.js so the
+    // standing screen can state the effect exactly instead of guessing at it.
     const standing = ctx.faction?.standing ?? 0;
-    const p = clamp(0.2 + skill(player, "trader") * 0.055 + standing / 250, 0.05, 0.9);
+    const p = clamp(0.2 + skill(player, "trader") * 0.055 + standingTalkBonus(standing), 0.05, 0.9);
     e.days = Math.round(between(rng, 1, 4));
     if (rng() < p) {
       Object.assign(e.standing, moveStanding(ctx, 6));
@@ -862,6 +865,18 @@ export function applyOutcome(game, outcome) {
       ? { ...f, standing: clamp(f.standing + e.standing[f.factionId], -100, 100) }
       : f);
 
+  // THE LEDGER. Standing moved in five handlers and left no trace anywhere the
+  // player could read it afterwards — so the number on the reputation screen was
+  // a verdict with no evidence. Each move is now filed with the encounter and
+  // the choice that caused it, and with where the number LANDED (the ±100 clamp
+  // means a list of deltas cannot be added back up).
+  const repLog = appendRepLog(game.repLog, repEntries({
+    deltas: e.standing,
+    factions,
+    t: game.t,
+    reason: `${outcome.label} — ${ENCOUNTER_BY_ID[outcome.encounterId]?.title || "an encounter"}`,
+  }));
+
   // Days lost push the arrival back; the clock then drifts the markets over them
   // for free, so a delay genuinely changes the prices you arrive to.
   const leg = game.leg && e.days
@@ -870,7 +885,7 @@ export function applyOutcome(game, outcome) {
 
   const next = {
     ...game,
-    player, factions, leg,
+    player, factions, leg, repLog,
     log: [...(game.log || []), `${outcome.headline} (${outcome.label})`],
   };
   if (e.destroyed || hullPct <= 0) {

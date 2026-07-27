@@ -18,6 +18,7 @@ import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
 import { FACTION_BY_ID } from "../data/factions.js";
+import { reputationTrack, repAt, repLedger, REP_MIN, REP_MAX } from "../reputation.js";
 import { runPlan, cargoValueAt } from "../intel.js";
 import { atlasFor, atlasProgress } from "../atlas.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
@@ -171,12 +172,14 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "dock" ? S.tabOn : null) }} onClick={() => setMode("dock")}>⚓ Dock</button>
                 <button style={{ ...S.tab, ...(mode === "yard" ? S.tabOn : null) }} onClick={() => setMode("yard")}>🔧 Yard</button>
                 <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
+                <button style={{ ...S.tab, ...(mode === "standing" ? S.tabOn : null) }} onClick={() => setMode("standing")}>⚖ Standing</button>
                 <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
               {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} />
                 : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
-                  : mode === "atlas" ? <AtlasPanel game={game} />
-                    : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
+                  : mode === "standing" ? <StandingPanel game={game} />
+                    : mode === "atlas" ? <AtlasPanel game={game} />
+                      : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
             </>
           )}
         </aside>
@@ -431,14 +434,23 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
   const fp = fuelPrice(game);
   const tank = tankMax(p), tankFreeT = tank - p.ship.fuelTonnes;
   const control = factionAt(game.factions, site.id);
+  const rep = repAt(game, site.id);
 
   return (
     <div style={{ overflowY: "auto" }}>
       <div style={S.siteName}>{site.name}</div>
       <SystemInfoBlock game={game} siteId={p.at} />
-      {control && (
+      {control && rep && (
         <div style={S.faction}>
-          <b>{control.faction.name}</b> holds this port. {control.faction.blurb}
+          <div>
+            <b>{control.faction.name}</b> holds this port.
+            {/* Standing where it would change a decision, not only on its own
+                screen — this is whose hall you are standing in right now. */}
+            <span style={{ ...S.repChip, color: rep.tier.tone, borderColor: rep.tier.tone }}>
+              {rep.tier.name} {rep.standing > 0 ? "+" : ""}{rep.standing}
+            </span>
+          </div>
+          <div style={{ marginTop: 4 }}>{control.faction.blurb}</div>
         </div>
       )}
       <div style={S.why}>{site.why}</div>
@@ -539,6 +551,7 @@ function Travel({ game, dest, setDest, onGo }) {
         if (!cost) return null;
         const on = dest === site.id, ok = cost.reachable && cost.enoughFuel;
         const control = factionAt(game.factions, site.id);
+        const rep = repAt(game, site.id);
         return (
           <div key={site.id} style={{ ...S.destCard, ...(on ? S.destOn : null), opacity: cost.reachable ? 1 : 0.55 }}
             onMouseEnter={() => setDest(site.id)}>
@@ -552,6 +565,9 @@ function Travel({ game, dest, setDest, onGo }) {
                 {!cost.reachable && <span style={S.tooFar}> · out of range</span>}
                 {cost.reachable && !cost.enoughFuel && <span style={S.tooFar}> · refuel first</span>}
                 {control && <span style={S.destFaction}> · {control.faction.name}</span>}
+                {/* Who runs it AND how you stand with them — the port you are
+                    least welcome at is worth knowing before you burn for it. */}
+                {rep && <span style={{ color: rep.tier.tone }}> ({rep.tier.name.toLowerCase()})</span>}
               </div>
             </button>
             {on && (
@@ -602,6 +618,113 @@ function CustomsWarning({ game, site }) {
         </div>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// STANDING — who out here knows your name, what it took, and what it buys.
+//
+// The three questions the game could not answer. Standing moved in five places
+// (fight, bribe, comply, help, ignore) and the only number a player ever saw was
+// inside the encounter panel that had just changed it; dismiss the panel and the
+// figure was gone. reputation.js owns the ladder and the effects, so this screen
+// can state what standing DOES exactly rather than approximating it.
+//
+// Colour is never the message (project rule 4): every tier shows its word and a
+// signed number, and the bar carries a text label for a screen reader.
+// ---------------------------------------------------------------------------
+function StandingPanel({ game }) {
+  const track = reputationTrack(game);
+  const [open, setOpen] = useState(null);
+  return (
+    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
+      <div style={S.siteName}>Standing</div>
+      <div style={S.why}>
+        Who is out here this run, and what they make of you. Standing moves when you meet
+        them between worlds — a fight, a bribe, an inspection complied with, a distress
+        call answered or ignored. It starts where their disposition puts it, not at zero.
+      </div>
+
+      {track.length === 0 && (
+        <div style={{ ...S.small, padding: "0 18px" }}>Nobody has been drawn into this world. That should not happen.</div>
+      )}
+
+      {track.map((r) => {
+        const ledger = repLedger(game, { factionId: r.factionId, limit: 6 });
+        const isOpen = open === r.factionId;
+        return (
+          <div key={r.factionId} style={S.repCard}>
+            <div style={S.row2}>
+              <b>{r.faction.name}</b>
+              <span style={{ color: r.tier.tone, fontWeight: 700, fontSize: 13 }}>
+                {r.tier.name} · {r.standing > 0 ? "+" : ""}{r.standing}
+              </span>
+            </div>
+            <RepBar standing={r.standing} tone={r.tier.tone} label={`${r.faction.name}: ${r.tier.name}`} />
+            <div style={{ ...S.small, marginTop: 6 }}>
+              {r.archetype?.name} · holds {r.siteName}
+              {r.atTheirPort ? " — you are docked in their hall" : r.inTheirSystem ? " — you are in their space" : ""}
+            </div>
+            <div style={{ ...S.small, marginTop: 6, color: "#CDD5E4" }}>{r.tier.note}</div>
+
+            <button style={S.repLedgerBtn} onClick={() => setOpen(isOpen ? null : r.factionId)}
+              aria-expanded={isOpen}>
+              {ledger.length
+                ? `${isOpen ? "▾" : "▸"} What it took (${ledger.length})`
+                : "▸ Nothing between you yet"}
+            </button>
+            {isOpen && (
+              ledger.length ? (
+                <div style={{ marginTop: 6 }}>
+                  {ledger.map((e, i) => (
+                    <div key={i} style={S.repEntry}>
+                      <div style={S.row2}>
+                        <span style={S.small}>{fmtDate(e.t)}</span>
+                        <span style={{ color: e.delta > 0 ? "#3E9B6E" : "var(--hot)", fontWeight: 700, fontSize: 12.5 }}>
+                          {e.delta > 0 ? "+" : ""}{e.delta} → {e.standing > 0 ? "+" : ""}{e.standing}
+                        </span>
+                      </div>
+                      <div style={{ ...S.small, color: "#CDD5E4" }}>{e.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ ...S.small, marginTop: 6 }}>
+                  You have not met them out there. This number is where their disposition
+                  toward a stranger started, and nothing has moved it.
+                </div>
+              )
+            )}
+          </div>
+        );
+      })}
+
+      <div style={S.yardHead}>What standing buys</div>
+      <div style={{ ...S.small, padding: "0 18px 6px" }}>
+        One thing today, and this screen will not pretend otherwise: <b>a name they know is a
+        name they will listen to</b>. Talking your way out of an encounter shifts by up to 40
+        percentage points across the ladder
+        {track.length ? <> — with your best name out here, {track[0].faction.name}, that is currently{" "}
+          <b>{track[0].talkBonusPct > 0 ? "+" : ""}{track[0].talkBonusPct} points</b></> : null}.
+        Everything else standing could buy — a friendly port's tariff, contracts offered only to
+        names they trust, a region that turns hostile — is not built yet. It is the next decision,
+        not a hidden feature.
+      </div>
+    </div>
+  );
+}
+
+/** A diverging bar centred on zero: left of centre is trouble, right is trust.
+ *  Never the only carrier of meaning — the tier word and the number sit above it. */
+function RepBar({ standing, tone, label }) {
+  const span = REP_MAX - REP_MIN;                 // 200 points, centre at 50%
+  const f = Math.max(0, Math.min(1, (standing - REP_MIN) / span));
+  const left = Math.min(f, 0.5), right = Math.max(f, 0.5);
+  return (
+    <div style={S.repTrack} role="img" aria-label={`${label}, ${standing > 0 ? "plus " : ""}${standing} out of 100`}>
+      <div style={{ ...S.repFill, left: `${left * 100}%`, width: `${(right - left) * 100}%`, background: tone }} />
+      <div style={S.repZero} />
+    </div>
   );
 }
 
@@ -1038,7 +1161,9 @@ const S = {
   svg: { flex: 1, minHeight: 0, width: "100%" },
   panel: { width: 400, flexShrink: 0, borderLeft: "1px solid var(--line)", background: "var(--panel)", display: "flex", flexDirection: "column", overflow: "hidden" },
   tabs: { display: "flex", borderBottom: "1px solid var(--line)" },
-  tab: { flex: 1, background: "var(--panel-2)", border: "none", padding: "12px", cursor: "pointer", fontSize: 14, color: "var(--muted)" },
+  // Five tabs in a 400px panel: tighter than four were, and nowrap so a label
+  // never breaks in half rather than shrinking the row.
+  tab: { flex: 1, background: "var(--panel-2)", border: "none", padding: "12px 3px", cursor: "pointer", fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" },
   tabOn: { background: "var(--panel)", color: "var(--gold)", fontWeight: 700, boxShadow: "inset 0 -2px 0 var(--gold)" },
 
   encKind: { display: "inline-block", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1.2, borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderRadius: 10, padding: "2px 9px", marginBottom: 12 },
@@ -1092,6 +1217,13 @@ const S = {
   held: { color: "var(--gold)", fontSize: 12 },
   crewTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 6px", marginLeft: 4 },
   atlasRow: { margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, fontSize: 13 },
+  repCard: { margin: "0 18px 8px", padding: "11px 13px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 9, fontSize: 13 },
+  repTrack: { position: "relative", height: 7, marginTop: 8, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 5, overflow: "hidden" },
+  repFill: { position: "absolute", top: 0, bottom: 0, minWidth: 2 },
+  repZero: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "var(--line)" },
+  repLedgerBtn: { marginTop: 9, width: "100%", textAlign: "left", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "6px 10px", cursor: "pointer", color: "var(--muted)", fontSize: 12 },
+  repEntry: { padding: "6px 0", borderTop: "1px solid var(--line)" },
+  repChip: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, borderWidth: "1px", borderStyle: "solid", borderRadius: 10, padding: "1px 7px", marginLeft: 6, whiteSpace: "nowrap" },
   bannedTag: { fontSize: 10, color: "var(--hot)", border: "1px solid var(--hot)", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   legalTag: { fontSize: 10, color: "#3E9B6E", border: "1px solid #3E9B6E", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   tierTag: { fontSize: 11, color: "var(--muted)" },
