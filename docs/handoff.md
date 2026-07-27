@@ -8,55 +8,62 @@ of this file is the detail that block points at.
 ## Prompt for the next session
 
 > You're continuing work on **SOLBOUND**, a single-player economic-strategy game
-> set in the real solar system, in the repo at `~/Dropbox/Solbound` (its own git
-> repo, a sibling of Shutterbug, no shared code). It's **live** and auto-deploys
-> on push to `main`: https://joshuadanielspencer-boop.github.io/solbound/
+> set in the real solar system, repo at `~/Dropbox/Solbound` (its own git repo, a
+> sibling of Shutterbug, no shared code). LIVE at
+> https://joshuadanielspencer-boop.github.io/solbound/ — **but note: ~8 commits
+> are LOCAL and UNPUSHED** (push auto-deploys; Joshua decides when).
 >
-> **Read first, in order:** `docs/design.md` (the master design — SOLBOUND, the
-> trade/colony game; NOT the archived `docs/design-survey-era.md`), then
-> `docs/handoff.md` (this file's detail sections), then skim `src/` — it's small,
-> tested, and every file has a header explaining itself.
+> **Read first, in order:** `docs/design.md` (master design), `docs/site-atlas.md`
+> (the researched census of ~60 real places + the Space Trader benchmark), then
+> `docs/handoff.md` (this file — especially "Where things stand", "How the
+> encounter layer works", the roadmap, and "Known balance notes"). Then skim
+> `src/` — every file has a header explaining itself.
 >
-> **What the game is:** Space Trader's loop (create a captain, buy where a good is
-> cheap, cross real orbits at a real fuel-and-time cost, sell where it's dear,
-> upgrade) on the real solar system, with real orbital mechanics, the rocket
-> equation as the fuel model, a scarcity-priced economy where **trade is
-> DEPENDENCY not arbitrage** (bulk goods can't ship; only high value-per-kg
-> crosses the system), and a roguelike **faction** layer that rolls a different
-> world each seed over the fixed (educational) geography.
+> **What the game is:** Space Trader's loop on the real solar system — captain,
+> buy/fly/sell across real orbits priced by the rocket equation, an economy where
+> trade is DEPENDENCY not arbitrage, and a roguelike draw over fixed real
+> geography.
 >
-> **What's built and playable** (322 tests, all pure-function + tested): the whole
-> Space Trader floor, and then some. Living orrery with a drivable clock, your ship
-> flying real transfer arcs and pausing on arrival; captain creation with 4 skills;
-> markets + cargo + buy/sell with a house spread and cost-basis; **market intel**
-> (see a destination's prices before you fly, freshness gated by light-lag);
-> **system character** (tech, government, police AND pirates as separate readings)
-> + a **paid newspaper**; **save/load** (versioned to v7, migrating, autosave +
-> file); a **Ship Yard** (repair, weapon/shield/gadget bays, hulls gated by port
-> tech, an **escape pod**); **crew** you hire into a hull's berths who do the job
-> when they're better than you, paid a **daily wage** that makes the calendar
-> cost something; the **encounter / risk layer** — trouble in transit resolved by
-> a pure function, drawn nose to nose; **customs duty** on controlled cargo and
-> **true contraband** (arms, unsafeguarded fissiles) that is legal at a free port
-> and a seizure two weeks away; and the **faction draw wired to prices**, so a
-> colony the newspaper calls desperate actually pays like it.
+> **What's built** (348 tests, all pure functions + a thin React UI):
+> the full trade loop on a living orrery · market intel gated by light-lag AND
+> **solar conjunction** (real geometry; ~2-week blackouts) · system character with
+> police/pirates as separate readings · paid newspaper · save/load (**v8**,
+> migration ladder) · Ship Yard with weapon/shield/gadget bays + **escape pod** ·
+> **crew** (best hand aboard does the job) with **daily wages** · the
+> **encounter/risk layer** (pure resolver, SVG face-off art, customs duty on
+> controlled goods, TRUE CONTRABAND — arms/fissiles legal at free ports, seized
+> under strict law) · faction market mods wired to prices · and **the drawn
+> world**: `worldgen.spawnSites(seed)` draws 9–13 sites from the census around
+> the immortal core seven (place × installation × operator, all derived), with
+> the **Atlas tab** revealing real places by docking or survey-lab sweeps.
 >
-> **The world is DRAWN now.** docs/site-atlas.md's census became data: ~40 real
-> places (data/places.js), ~27 installations, ~22 operators, and
-> worldgen.spawnSites(seed) draws 9–13 sites around the immortal core seven —
-> 16–20 ports per run, different every seed, all real geography. Sites live ON
-> the game (game.sites, in the save). Plus: SOLAR CONJUNCTION as real geometry
-> (intel blacks out ~2 weeks when the Sun stands between you and a system —
-> and the trip stays flyable, as a bet), and the ATLAS TAB — every census place
-> revealed by docking, or a whole system at once by arriving with a survey lab.
+> **Do next, in this order unless Joshua redirects:**
+> 1. **Reputation as a visible track** — standing moves in five places, shows
+>    nowhere. Cheapest big win.
+> 2. **Missions/contracts board** — factions have `offers`, operators have
+>    personalities, and the drawn world finally gives missions somewhere to go.
+>    Include survey contracts (the atlas is the reward track) and Sunless-Sea
+>    style "port report" pay for first visits.
+> 3. **Drive eras as purchases** — DRIVES exist in propulsion.js but there is no
+>    buy path; the player's ship is methalox forever. Nuclear-thermal at a
+>    high-tech yard is what opens Saturn (5.6yr/551t today) and IS the campaign
+>    spine (design.md §8). Consider alongside: launch-window discounts, and the
+>    Aldrin cycler once phasing exists.
+> 4. Small UX from the Space Trader pass: a WAIT button (wait() has no UI), a
+>    range readout, "not sold" rows.
+> 5. See "Suggestions from the wider-games research" in this file for the
+>    researched backlog (rare/provenance goods, debt & insurance, aging arc,
+>    event director, fact-unlocks).
 >
-> **Do next: reputation as a visible track, then missions/contracts** — both
-> now have a real map to live on. See the ranked roadmap below.
+> **Balance items awaiting Joshua's playtest** are listed under "Known balance
+> notes" — do NOT blind-tune them. Several design decisions have had NO feedback
+> yet (see "Awaiting feedback" section); surface them when relevant rather than
+> treating them as settled.
 >
 > Work the way the existing commits do: small tested increments, honest commit
-> messages that say what was found (not just done), and `npm test` + `npm run
-> build` before every commit. The user plays and gives feedback between features;
-> flag balance/feel questions for playtest rather than blind-tuning.
+> messages that say what was FOUND (not just done), `npm test` + `npm run build`
+> before every commit, and verify UI changes in the browser preview
+> (`solbound-dev`, auto-port).
 
 ---
 
@@ -295,6 +302,71 @@ faction market modifiers wired to prices, the paid newspaper, encounter art.
 - Keep **SVG/React**, not Canvas — accessibility beats sprite throughput at this scale.
 - **Advance-to-next-decision** pacing with continuous animated time, not literal turns.
 - Real physics stays **under the hood** — never a design-your-own-rocket screen.
+
+## Suggestions from the wider-games research (2026-07-27)
+
+Mined from Taipan, Elite Dangerous, Sid Meier's Pirates!, Sunless Sea, 80 Days,
+FTL, Patrician et al. — each mapped to what it would do HERE. Ranked:
+
+1. **Rare / provenance goods** (Elite Dangerous): goods only one site sells,
+   whose value rises with distance from origin — Titan methane distillate,
+   lava-tube-aged whisky, Reiner Gamma pilgrim tokens. Gives long hauls a
+   guaranteed spine independent of market state; tiny data cost. ED caps value
+   ~160-200 ly out; ours would scale with Δv-distance, which teaches the map.
+2. **Debt, and a lender with personality** (Taipan's Elder Brother Wu; Space
+   Trader had interest too): borrowing against the ship turns a bad encounter
+   into a story instead of a reload, and interest makes the calendar cut both
+   ways. Pairs with an INSURANCE operator (Mutual Assurance already exists in
+   data/operators.js) underwriting hull/cargo — premiums vs pirate risk is a
+   real decision.
+3. **A career clock** (Pirates! aging): Space Trader's "retire rich" Run mode +
+   aging gives campaigns an arc and a scored ending ("what became of you").
+   Fits the two-victory design (Run/Campaign) already locked in design.md.
+4. **Port reports** (Sunless Sea): first-visit pay for delivering a report to
+   the Archive/university/surveyors — makes exploration itself an income line
+   and gives the atlas an economic echo. Cheap: `visited` already exists.
+5. **Warehouse storage** (Taipan): rent storage at a port to ride out a price
+   trough or stage cargo — with theft/spoilage risk at low-law ports. Makes
+   markets a game you can play in TIME, not just space.
+6. **Event director** (FTL/RimWorld pacing): a storyteller layer that spaces
+   encounters/news for drama (quiet stretch → spike) instead of pure hazard
+   rolls. Keep determinism: seed-keyed.
+7. **Fact-unlocks** (Outer Wilds' knowledge-as-progression): atlas entries that
+   CHANGE PLAY when learned — surveying Enceladus reveals plume-scoop refuel,
+   surveying Utopia enables a depot contract. Research literally becomes
+   capability, which is design.md §1's chain verbatim.
+8. **Named rival captains** (Pirates!/ED minor factions): precursor to §9's
+   rival layer — a name that recurs in news/encounters before full AI exists.
+
+Sources: [ED rare goods](https://elite-dangerous.fandom.com/wiki/List_of_Rare_Commodities) ·
+[Taipan mechanics](https://en.wikipedia.org/wiki/Taipan!) ·
+[Pirates! aging](https://sidmeierspirates.fandom.com/wiki/Age) ·
+[Sunless Sea port reports](https://sunlesssea.fandom.com/wiki/Port_Report)
+
+## Awaiting Joshua's feedback (no response yet — not settled)
+
+Decisions made this sprint that have had NO playtest or comment. Surface before
+building on top of them:
+
+- **Escape pod as the death answer** ($35k, one use, wake at nearest port).
+- **Contraband tone & numbers**: arms/fissiles as the two goods; fine 0.35×value
+  ×risk; 3.15× legal/banned spread; smuggling being mid-game-by-geography.
+- **Wages vs early capital**: cheapest hire $130/day; a crewed 9-month Mars run
+  costs more in wages than a starter's cargo. Best pressure or early trap?
+- **Encounter frequency**: ~45-50% per quiet Mars leg (0.08/month base).
+- **Paid newspaper** ($330–780 by tech) — act-not-tax intent.
+- **Slot kinds**: Courier can never mount a shield; only the Cutter fights.
+- **Crew pool**: 12 named hands, tech-gated ratings, 40-day refresh.
+- **The drawn world itself**: 16-20 sites/run, operator/installation tone
+  ("The Quiet Company", "Reiner Gamma Retreat"), name style, census content.
+- **Conjunction**: 3° threshold ≈ 18-day blackout; intel fully dark (no stale
+  cache); flying still allowed.
+- **Atlas reveal rules**: Earth free; docking reveals a place; lab reveals a
+  system. And survey-lab-as-instrument vs future survey MISSIONS.
+- **Deferred calls**: Aldrin cycler atlas-only until phasing; ephemeris 2050
+  horizon still standing (Joshua said multi-mission long games are the goal —
+  the 3000AD tables are now genuinely needed, not deferred-forever).
+- **~8 unpushed commits** — pushing deploys; his call.
 
 ## Known balance notes for playtest (not blind-tuned)
 
