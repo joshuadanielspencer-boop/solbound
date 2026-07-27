@@ -24,8 +24,9 @@
 // ===========================================================================
 
 import { initialMarkets } from "./market.js";
+import { marketMods } from "./factions.js";
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -142,6 +143,21 @@ const MIGRATIONS = {
       if (p.ship && p.ship.escapePod === undefined) p.ship.escapePod = false;
     }
     save.version = 6;
+    return save;
+  },
+  // v6 → v7: faction market modifiers now live ON each market. An older save's
+  // markets have none, so its crises would quietly price like anywhere else —
+  // the newspaper would report a colony starving while its shelves stayed full.
+  // Recompute them from the save's own faction placement, which is deterministic
+  // and still right.
+  6: (save) => {
+    const s = save.state;
+    if (s?.markets && Array.isArray(s.factions)) {
+      for (const [siteId, m] of Object.entries(s.markets)) {
+        if (!m.mods) m.mods = marketMods(s.factions, siteId);
+      }
+    }
+    save.version = 7;
     return save;
   },
 };

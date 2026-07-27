@@ -94,3 +94,72 @@ describe("the news feed", () => {
     expect(news.items.some((i) => i.kind === "crisis")).toBe(true);
   });
 });
+
+// ===========================================================================
+// THE PAID NEWSPAPER, and the two-number safety readout.
+//
+// Both are Space Trader screens we had only half of: the news was free (in a
+// game whose thesis is that information is a resource), and Police and Pirates
+// were netted into one word that could not express the thing that matters most
+// now that contraband exists.
+// ===========================================================================
+import { buyPaper, paperPrice, launch } from "../src/tradergame.js";
+import { policeWord, pirateWord, policeLevel } from "../src/worldinfo.js";
+
+describe("the paper costs money", () => {
+  const g0 = () => newGame(newPlayer({ name: "V", skills: defaultSkills() }), 42);
+
+  it("charges, and a better-connected port charges more", () => {
+    const g = g0();
+    const core = paperPrice(g);                                   // Gateway, tech 7
+    const frontier = paperPrice({ ...g, player: { ...g.player, at: "callisto-station" } });
+    expect(core).toBeGreaterThan(frontier);
+    expect(frontier).toBeGreaterThan(0);
+  });
+
+  it("buying it takes the money and marks it read for this port", () => {
+    const g = g0();
+    const r = buyPaper(g);
+    expect(r.game.player.credits).toBe(g.player.credits - r.spent);
+    expect(r.game.paperAt).toBe(g.player.at);
+    expect(buyPaper(r.game).error).toBe("already-read");
+  });
+
+  it("won't sell you one you can't afford", () => {
+    const g = g0();
+    expect(buyPaper({ ...g, player: { ...g.player, credits: 1 } }).error).toBe("credits");
+  });
+
+  it("leaving port means yesterday's paper", () => {
+    const g = buyPaper(g0()).game;
+    expect(launch(g, "shackleton").game.paperAt).toBeNull();
+  });
+});
+
+describe("police and pirates are two readings, not one", () => {
+  it("each has its own vocabulary, from safe to not", () => {
+    expect(policeWord(0.9).word).toBe("Abundant");
+    expect(policeWord(0.1).word).toBe("Absent");
+    expect(pirateWord(0.9).word).toBe("Swarms");
+    expect(pirateWord(0.05).word).toBe("Few");
+  });
+
+  it("a navy in the neighbourhood raises the police reading, not the pirate one", () => {
+    const g = newGame(newPlayer({ name: "V", skills: defaultSkills() }), 42);
+    const site = SITE_BY_ID["leo"];
+    const alone = policeLevel({ ...g, factions: [] }, site);
+    const patrolled = policeLevel({ ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }] }, site);
+    expect(patrolled).toBeGreaterThan(alone);
+  });
+
+  it("a patrolled system reports low pirates AND high police at once", () => {
+    // The distinction the split exists for: this is the best lane in the game
+    // for a legal hold and the worst for a banned one, and one netted danger
+    // word could not say both.
+    const g = newGame(newPlayer({ name: "V", skills: defaultSkills() }), 42);
+    const patrolled = { ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }] };
+    const info = systemInfo(patrolled, "leo");
+    expect(info.pirateWord).toBe("Few");
+    expect(["Abundant", "Moderate"]).toContain(info.policeWord);
+  });
+});

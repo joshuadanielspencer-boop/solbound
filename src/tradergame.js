@@ -20,7 +20,7 @@
 // thing that makes depots matter in reality.
 // ===========================================================================
 
-import { SITE_BY_ID, SITES } from "./data/sites.js";
+import { SITE_BY_ID, SITES, techOf } from "./data/sites.js";
 import { SYSTEM_BY_ID } from "./data/bodies.js";
 import { DRIVES } from "./propulsion.js";
 import { propellantFor, massRatio } from "./propulsion.js";
@@ -29,7 +29,7 @@ import { heliocentric } from "./ephemeris.js";
 import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
 import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
-import { spawnFactions, worldBrief } from "./factions.js";
+import { spawnFactions, worldBrief, marketMods } from "./factions.js";
 import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
 import { ENCOUNTER_BY_ID } from "./data/encounters.js";
 import { dailyWages, payWages } from "./crew.js";
@@ -66,9 +66,13 @@ const AEROBRAKE = { earth: 0.85, mars: 0.85, venus: 0.9 };
 
 export function newGame(player, seed = 1) {
   const factions = spawnFactions(seed);
+  // The faction draw reaches the shelves: each placed actor bends its home
+  // market (glut, demand, crisis, what it produces), and the market carries
+  // those modifiers from here on so prices never disagree with the newspaper.
+  const mods = Object.fromEntries(SITES.map((s) => [s.id, marketMods(factions, s.id)]));
   return {
     player,
-    markets: initialMarkets(),
+    markets: initialMarkets(mods),
     t: START_DATE,
     seed,
     // The fleet's clock model, now the trade game's. `status` is "docked" (at a
@@ -208,6 +212,8 @@ export function launch(game, destId) {
       status: "transit",
       rateIdx: game.rateIdx || 1,               // start the clock if it was paused
       rollCursor: cursor + 1,
+      paperAt: null,                            // yesterday's paper, and you've left
+
       leg: {
         from: from.id, to: destId, departT, arriveT,
         fuelCost: cost.fuelTonnes, dvKms: cost.dvKms, days: cost.days,
@@ -427,6 +433,37 @@ export function sell(game, id, tonnes) {
   const r = playerSell(game.player, game.markets, id, tonnes);
   if (r.error) return r;
   return { game: { ...game, player: r.player, markets: r.markets }, ...r };
+}
+
+// ---------------------------------------------------------------------------
+// The local paper — information as a thing you buy
+// ---------------------------------------------------------------------------
+
+/**
+ * Space Trader charged 3 credits for the newspaper, and it was right to: this is
+ * a game whose thesis is that information is a resource (design.md §7), and a
+ * free feed of every shortage in the system quietly contradicts that.
+ *
+ * The price is small on purpose. It is not meant to be an agonising decision —
+ * it is meant to make reading the news an ACT, so that skipping it is possible
+ * and flying blind is something the player chose. A better-connected port
+ * charges more, because it knows more (newsReach).
+ */
+export const paperPrice = (game) => 150 + techOf(SITE_BY_ID[game.player.at])?.n * 90;
+
+/** Buy this port's paper. It stays readable until you leave. */
+export function buyPaper(game) {
+  if (game.paperAt === game.player.at) return { error: "already-read", reason: "You've already read it." };
+  const price = paperPrice(game);
+  if (game.player.credits < price) return { error: "credits", reason: `The paper costs ${price} credits.` };
+  return {
+    game: {
+      ...game,
+      paperAt: game.player.at,
+      player: { ...game.player, credits: game.player.credits - price },
+    },
+    spent: price,
+  };
 }
 
 /** Let time pass at a site without travelling (wait for a shortage, a window). */

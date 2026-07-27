@@ -27,13 +27,14 @@ import { buyShip, fitModule, removeModule, repairHull, buyEscapePod } from "../s
 import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
 import { CREW_BY_ID, berthsFor } from "../data/crew.js";
 import { SKILLS } from "../data/captain.js";
+import { FaceOff, HullArt } from "./ships.jsx";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter, controlledCargo, illegalCargo } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
 import { govOf } from "../data/sites.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
-  buy, sell, tankMax, RATES, dailyCost, tripCost,
+  buy, sell, tankMax, RATES, dailyCost, tripCost, paperPrice, buyPaper,
 } from "../tradergame.js";
 
 const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
@@ -132,6 +133,7 @@ export default function Play({ game, setGame, onQuit }) {
   const doRepair = () => { const r = repairHull(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Repaired ${r.repaired} points of hull for ${money(r.cost)}.`); };
   const doBuyPod = () => { const r = buyEscapePod(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Escape pod fitted for ${money(r.spent)}. Cheaper than the alternative.`); };
   const doHire = (id) => { const r = hireCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.hired.name} signed on at ${money(r.hired.wage)}/day.`); };
+  const doBuyPaper = () => { const r = buyPaper(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); };
   const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
 
   // Download the current game as a file — survives a cleared cache and moves
@@ -169,7 +171,7 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "yard" ? S.tabOn : null) }} onClick={() => setMode("yard")}>🔧 Yard</button>
                 <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
               </div>
-              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} />
+              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} />
                 : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
                   : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
             </>
@@ -298,6 +300,8 @@ function EncounterPanel({ game, onChoose, onDismiss }) {
   return (
     <div style={{ overflowY: "auto", padding: "18px 18px 24px" }}>
       <div style={{ ...S.encKind, color: kindTone, borderColor: kindTone }}>⚠ {kindWord} · encounter</div>
+      <FaceOff hull={p.ship.hull} kind={enc.kind} encounterId={enc.id}
+        distanceNote={game.leg ? `${Math.round((1 - (game.leg.arriveT - game.t) / (game.leg.arriveT - game.leg.departT)) * 100)}% of the way to ${SITE_BY_ID[game.leg.to]?.name}` : "in transit"} />
       <div style={S.encTitle}>{enc.title}</div>
       <div style={S.encText}>{enc.text}</div>
 
@@ -416,7 +420,7 @@ function GameOver({ game, onQuit }) {
 // ---------------------------------------------------------------------------
 // Dock
 // ---------------------------------------------------------------------------
-function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
+function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
   const p = game.player;
   const site = SITE_BY_ID[p.at];
   const market = game.markets[p.at];
@@ -436,7 +440,7 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel }) {
       )}
       <div style={S.why}>{site.why}</div>
 
-      <Newspaper game={game} />
+      <Newspaper game={game} onBuyPaper={onBuyPaper} />
 
       <div style={S.fuelBox}>
         <div style={S.fuelHead}>
@@ -785,10 +789,12 @@ function SystemInfoBlock({ game, siteId }) {
 // ---------------------------------------------------------------------------
 // The local newspaper — the "why go far" signal, drawn from factions + markets.
 // ---------------------------------------------------------------------------
-function Newspaper({ game }) {
+function Newspaper({ game, onBuyPaper }) {
   const [open, setOpen] = useState(true);
   const news = generateNews(game);
   if (!news.items.length) return null;
+  const bought = game.paperAt === game.player.at;
+  const price = paperPrice(game);
   const tone = { crisis: "var(--hot)", danger: "var(--hot)", opportunity: "#3E9B6E", market: "var(--gold)" };
   return (
     <div style={S.paper}>
@@ -796,7 +802,7 @@ function Newspaper({ game }) {
         <span>📰 {news.paper}</span>
         <span style={S.paperToggle}>{open ? "▾" : "▸"}</span>
       </button>
-      {open && (
+      {open && (bought ? (
         <div style={S.paperBody}>
           {news.items.map((it, i) => (
             <div key={i} style={S.headline}>
@@ -805,7 +811,18 @@ function Newspaper({ game }) {
           ))}
           <div style={S.paperNote}>{news.reachNote}</div>
         </div>
-      )}
+      ) : (
+        // Not free. The whole game says information is a resource; a feed of
+        // every shortage in the system, handed over for nothing, said otherwise.
+        <div style={S.paperBody}>
+          <div style={S.small}>
+            {news.items.length} {news.items.length === 1 ? "story" : "stories"} on the wire today — {news.reachNote}.
+          </div>
+          <button style={{ ...S.smallBtn, marginTop: 8 }} onClick={onBuyPaper}>
+            Buy a copy — {money(price)}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -949,14 +966,14 @@ const S = {
   tab: { flex: 1, background: "var(--panel-2)", border: "none", padding: "12px", cursor: "pointer", fontSize: 14, color: "var(--muted)" },
   tabOn: { background: "var(--panel)", color: "var(--gold)", fontWeight: 700, boxShadow: "inset 0 -2px 0 var(--gold)" },
 
-  encKind: { display: "inline-block", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1.2, border: "1px solid", borderRadius: 10, padding: "2px 9px", marginBottom: 12 },
+  encKind: { display: "inline-block", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1.2, borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderRadius: 10, padding: "2px 9px", marginBottom: 12 },
   encTitle: { fontSize: 20, fontWeight: 700, lineHeight: 1.3, marginBottom: 8 },
   encText: { fontSize: 13.5, color: "#CDD5E4", lineHeight: 1.6 },
-  encWho: { marginTop: 12, padding: "9px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.55 },
+  encWho: { marginTop: 12, padding: "9px 12px", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.55 },
   encStatus: { display: "flex", flexWrap: "wrap", gap: 12, margin: "14px 0", padding: "9px 0", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", fontSize: 12.5, color: "#CDD5E4", fontVariantNumeric: "tabular-nums" },
   encPrompt: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", margin: "4px 0 8px" },
   encBtn: { width: "100%", textAlign: "left", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "10px 13px", marginBottom: 7, cursor: "pointer", color: "var(--text)", fontSize: 14 },
-  encResult: { padding: "12px 14px", background: "#0B111C", border: "1px solid", borderRadius: 10, marginBottom: 12 },
+  encResult: { padding: "12px 14px", background: "#0B111C", borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderRadius: 10, marginBottom: 12 },
   encHeadline: { fontSize: 16, fontWeight: 700, marginBottom: 6 },
 
   transitHead: { fontSize: 12, textTransform: "uppercase", letterSpacing: 1.5, color: "var(--gold)", marginBottom: 10 },
@@ -969,7 +986,7 @@ const S = {
   siteName: { fontSize: 19, fontWeight: 700, padding: "16px 18px 4px" },
   sysinfo: { padding: "0 18px 8px" },
   sysRow: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 5 },
-  sysChip: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 10, padding: "2px 8px" },
+  sysChip: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 10, padding: "2px 8px" },
   sysPop: { fontSize: 11.5, color: "var(--muted)", marginLeft: "auto" },
   sysPressure: { fontSize: 12.5, color: "#CDD5E4", lineHeight: 1.5 },
   faction: { margin: "0 18px 8px", padding: "9px 12px", background: "rgba(242,180,65,0.08)", border: "1px solid rgba(242,180,65,0.35)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.5 },
@@ -983,14 +1000,14 @@ const S = {
   fuelBox: { margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
   fuelHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, marginBottom: 8 },
   marketHead: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "10px 18px 6px" },
-  yardCard: { margin: "0 18px 6px", padding: "12px 14px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10 },
+  yardCard: { margin: "0 18px 6px", padding: "12px 14px", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 10 },
   yardTop: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 },
   yardStats: { display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12.5, color: "#CDD5E4", fontVariantNumeric: "tabular-nums" },
   yardBtn: { marginTop: 10, width: "100%", background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "8px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
   yardHead: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "14px 18px 6px" },
   modRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8 },
   modBtn: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontSize: 12, flexShrink: 0 },
-  shipRow: { display: "flex", alignItems: "center", gap: 10, margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8 },
+  shipRow: { display: "flex", alignItems: "center", gap: 10, margin: "0 18px 6px", padding: "10px 12px", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8 },
   shipOwned: { borderColor: "var(--gold)" },
   ownedTag: { fontSize: 10, color: "var(--gold)", border: "1px solid var(--gold)", borderRadius: 10, padding: "1px 7px", marginLeft: 6 },
   shipNote: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 3 },
@@ -1018,10 +1035,10 @@ const S = {
   destOpen: { padding: "0 13px 12px" },
   warnLine: { fontSize: 12, color: "var(--hot)", lineHeight: 1.5, marginTop: 6 },
 
-  customs: { margin: "10px 0 0", padding: "9px 11px", background: "rgba(127,178,206,0.08)", border: "1px solid rgba(127,178,206,0.4)", borderRadius: 8, fontSize: 12, lineHeight: 1.55 },
+  customs: { margin: "10px 0 0", padding: "9px 11px", background: "rgba(127,178,206,0.08)", borderWidth: "1px", borderStyle: "solid", borderColor: "rgba(127,178,206,0.4)", borderRadius: 8, fontSize: 12, lineHeight: 1.55 },
   intel: { margin: "10px 0 4px", padding: "10px 12px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8 },
   intelHead: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 8 },
-  freshTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, border: "1px solid", borderRadius: 10, padding: "1px 7px" },
+  freshTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderRadius: 10, padding: "1px 7px" },
   intelBlock: { marginBottom: 10 },
   intelLabel: { fontSize: 11, color: "var(--muted)", marginBottom: 4 },
   intelRow: { display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0", fontVariantNumeric: "tabular-nums" },
@@ -1037,5 +1054,5 @@ const S = {
   goBtn: { marginTop: 10, width: "100%", background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "10px", cursor: "pointer", fontWeight: 700, fontSize: 14 },
 
   pin: { fontSize: 12, textAnchor: "middle", pointerEvents: "none", fontFamily: "inherit" },
-  toast: { position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: "var(--panel)", border: "1px solid var(--gold)", borderRadius: 10, padding: "11px 18px", fontSize: 13.5, zIndex: 40, maxWidth: 560, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" },
+  toast: { position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: "var(--panel)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--gold)", borderRadius: 10, padding: "11px 18px", fontSize: 13.5, zIndex: 40, maxWidth: 560, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" },
 };

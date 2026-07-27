@@ -119,10 +119,19 @@ export function dailyProduction(site, commodityId) {
  *  way from its own much lower floor). */
 const START_STOCK_LIFT = 0.65 / 0.55;
 
-/** Build the starting market state for every site. */
-export function initialMarkets() {
+/**
+ * Build the starting market state for every site.
+ *
+ * `modsBySite` is this run's faction modifiers (factions.marketMods) — the
+ * roguelike layer finally reaching prices. They are stored ON the market rather
+ * than looked up at price time, because price is a pure function of stock and
+ * everything that reads a price would otherwise need the faction list threaded
+ * through it. A market carries its own world.
+ */
+export function initialMarkets(modsBySite = {}) {
   const markets = {};
   for (const site of SITES) {
+    const mods = modsBySite[site.id] || {};
     const stock = {};
     for (const c of COMMODITIES) {
       const extracts = site.produces.includes(c.id);
@@ -132,7 +141,11 @@ export function initialMarkets() {
       // base — stocked no electronics at all, and there was nothing to buy on
       // turn one. `makes` is the dependency ladder, so it has to reach the
       // shelves.
-      const makes = manufactures(site, c);
+      // A faction that PRODUCES something puts it on the shelves of a port that
+      // has no geological business selling it — which is how "Helios Fuels moved
+      // in" becomes "there is propellant here now" rather than a tooltip.
+      const factionMakes = (mods.produces || []).includes(c.id);
+      const makes = manufactures(site, c) || factionMakes;
       if (!extracts && !needs && !makes) continue;
       const nominal = nominalStock(site, c.id);
       // Producers start well stocked; importers start a little short, which is
@@ -143,9 +156,12 @@ export function initialMarkets() {
       // they settle, or opening stock equals equilibrium, mean reversion has
       // nothing left to do, and every market in the game sits perfectly still
       // for the whole run. (It did, for about ten minutes.)
-      stock[c.id] = (extracts || makes) ? nominal * 1.4 : nominal * equilibriumRatio(site, c) * START_STOCK_LIFT;
+      // Producers open at their steady surplus; importers open a little better
+      // stocked than they settle at, so the world is already drifting on turn one.
+      const ratio = stockRatio(site, c, mods);
+      stock[c.id] = (extracts || makes) ? nominal * ratio : nominal * ratio * START_STOCK_LIFT;
     }
-    markets[site.id] = { siteId: site.id, stock };
+    markets[site.id] = { siteId: site.id, stock, mods };
   }
   return markets;
 }
@@ -159,10 +175,10 @@ export function initialMarkets() {
  * "average price list" (see intel.js). The live priceAt() adds the transient
  * swing on top — the part you only see for sure when you arrive.
  */
-export function avgPrice(site, commodityId) {
+export function avgPrice(site, commodityId, mods = {}) {
   const c = COMMODITY_BY_ID[commodityId];
   if (!c) return null;
-  const eq = equilibriumStock(site, commodityId);
+  const eq = equilibriumStock(site, commodityId, mods);
   return Math.round(c.valuePerTonne * priceMultiplier(eq / nominalStock(site, commodityId)));
 }
 
@@ -215,28 +231,52 @@ const REVERSION_HALFLIFE = 60;
  * at a sensible shortage, and the player's edge is catching TEMPORARY swings —
  * or a faction-driven crisis — not the permanent starvation of an idle market.
  */
-export function equilibriumStock(site, commodityId) {
-  const c = COMMODITY_BY_ID[commodityId];
-  if (site.produces.includes(commodityId) || manufactures(site, c)) {
-    return nominalStock(site, commodityId) * 1.4;   // steady surplus
-  }
-  return nominalStock(site, commodityId) * equilibriumRatio(site, c);
+export function equilibriumStock(site, commodityId, mods = {}) {
+  return nominalStock(site, commodityId) * stockRatio(site, COMMODITY_BY_ID[commodityId], mods);
 }
 
 /**
- * How well stocked an IMPORTING site settles at, as a fraction of nominal.
+ * WHERE THE FACTION DRAW REACHES PRICES.
  *
- * A legal import settles at a chronic shortage — supply exists, it's just never
- * quite enough. A BANNED good settles far lower, because nothing legal supplies
- * it at all: the only stock is what somebody smuggled in. That single number is
- * what makes contraband pay. Price is a function of stock (see priceMultiplier),
- * so a black market at 0.15 of nominal prices at roughly 2.9x base while the
- * free port that sells it openly sits in surplus at 0.7x — a spread of about
- * four, earned entirely by being willing to cross a border with it.
+ * The roguelike layer has always described itself — "The Long Drought will pay
+ * anything for air and medicine" — while the prices underneath it stayed exactly
+ * the same as everywhere else. That made the newspaper a liar and every faction
+ * a paint job. These two functions are the fix, and they work through STOCK
+ * rather than through a price multiplier, because price here is a pure function
+ * of stock: bend the supply and the price follows, bounded by the same curve
+ * that stops everything else running away.
+ *
+ *   crisis  → 0.12   nothing is coming and people are dying (about 3.2x base)
+ *   demand  → 0.38   structurally short, and it shows in the price
+ *   glut    → 2.2    they are drowning in it and will let it go cheap
+ *
+ * A banned good is the floor of all of them, because no legal supply exists.
  */
-function equilibriumRatio(site, c) {
-  if (!c || !site.consumes.includes(c.id)) return 1;
-  return bannedAt(site, c) ? 0.15 : 0.55;
+const SURPLUS = 1.4;        // a producer's steady overhang
+const IMPORTING = 0.55;     // a consumer's chronic, never-quite-enough shortage
+const BANNED = 0.15;        // a black market: no legal supply at all
+const CRISIS = 0.12;        // nothing is coming, and people are dying
+
+function stockRatio(site, c, mods = {}) {
+  if (!c) return 1;
+  // A crisis overrides the geography entirely. That is what makes it a crisis:
+  // Mars grows its own food right up until the day the chain breaks.
+  if ((mods.crisis || []).includes(c.id)) return CRISIS;
+
+  const produces = site.produces.includes(c.id)
+    || manufactures(site, c)
+    || (mods.produces || []).includes(c.id);
+  let r = produces ? SURPLUS
+    : bannedAt(site, c) ? BANNED
+      : site.consumes.includes(c.id) ? IMPORTING : 1;
+
+  // Modifiers multiply the base rather than replacing it, which matters: a
+  // faction demanding food at a site that GROWS food should eat into the
+  // surplus, not be silently ignored because the producer branch won first.
+  // (It was, and the newspaper cheerfully reported a demand the prices denied.)
+  if ((mods.glut || []).includes(c.id)) r *= 1.6;
+  if ((mods.demand || []).includes(c.id)) r *= 0.6;
+  return r;
 }
 
 /**
@@ -254,7 +294,11 @@ export function advanceMarkets(markets, days) {
     if (!m) continue;
     const stock = { ...m.stock };
     for (const id of Object.keys(stock)) {
-      const eq = equilibriumStock(site, id);
+      // The market drifts toward the equilibrium ITS OWN WORLD sets, so a crisis
+      // stays a crisis while the faction causing it is there — supplying it eases
+      // the price for a season, and then it starves again. That is what makes a
+      // faction crisis a standing reason to fly somewhere rather than a one-off.
+      const eq = equilibriumStock(site, id, m.mods);
       stock[id] = Math.max(0, stock[id] + (eq - stock[id]) * frac);
     }
     out[site.id] = { ...m, stock };

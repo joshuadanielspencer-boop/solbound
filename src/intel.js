@@ -66,7 +66,11 @@ export function estimatedPrice(game, siteId, commodityId) {
   if (live) {
     mid = priceAt(game.markets[siteId], site, commodityId);
   } else {
-    mid = avgPrice(site, commodityId);
+    // The structural estimate has to know about this run's factions too, or the
+    // intel panel would quote a peaceful price for a colony everyone knows is
+    // in crisis — and the newspaper would be reporting a shortage the numbers
+    // denied.
+    mid = avgPrice(site, commodityId, game.markets[siteId]?.mods);
   }
   if (mid == null) return null;
   return {
