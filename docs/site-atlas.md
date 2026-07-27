@@ -1,373 +1,329 @@
-# THE SITE ATLAS — places, installations, and who runs them
+# THE SITE ATLAS — a census of the real solar system, and what to build on it
 
-**This is a content spec, not shipped content.** It exists to answer one question:
-how do we get from seven hand-written ports to a solar system with enough places,
-enough variety, and enough personality that a route is a *choice*?
+**This is a content spec, not shipped content.** Two questions drove it, both
+Joshua's: *how many distinct places can the real solar system actually support?*
+and *what did Space Trader do, and was it enough?* Both are answered below with
+data, then the full census.
 
-## The idea
+The design goal, stated once so nothing below drifts from it:
 
-A site is not one thing. It is **three things multiplied together**:
-
-```
-      WHERE it is   ×   WHAT it is   ×   WHO runs it   =   a port with an economy
-      (fixed, real)     (drawn)          (drawn)
-```
-
-The geography never changes — that is the educational spine, and it is why
-`why:` on every site is a real physical fact. But a place is only a *location*
-until something is built on it, and what gets built, and who builds it, can be
-drawn fresh every run.
-
-That means Ceres is always the water tower of the solar system, and its escape
-velocity is always about 510 m/s — but in one run it is a free port run by
-settlers, in the next a naval station that has closed the Belt to smuggling, and
-in the next a company town where a mining combine owns the air. Same rock. Same
-physics. A completely different game.
-
-**This is the existing faction principle pushed one level down.** Factions
-already vary per seed and bend a market. This makes the ports themselves vary,
-which is where the variety actually needs to live, because a market modifier on
-a port that is always the same port is decoration.
-
-### What the three parts each decide
-
-| | Decides |
-|---|---|
-| **Place** | What can physically be extracted here, how hard it is to reach and leave, what will kill you, how much sunlight there is |
-| **Installation** | What the place *does* — what it turns local resources into, what it needs shipped in, how many people are there, its tech level |
-| **Operator** | The law, the tariff, what's banned, how it treats you, what work it offers, whether it's dangerous |
-
-`produces` falls out of **place ∩ installation**. `consumes` falls out of
-**installation + population**. `government` comes from the **operator**. Nothing
-needs hand-authoring per site except the physical `why`, which is the part that
-must be true.
-
-> ⚠ **EVERY FACT BELOW NEEDS SOURCE-CHECKING BEFORE IT SHIPS** (project rule 2 /
-> design.md §16). This document is a brainstorm written from general knowledge;
-> the two 2024–25 findings marked ✦ were checked during writing and are cited at
-> the bottom. Everything else is "almost certainly right, verify anyway."
+> **A player should learn the real solar system passively, by playing.** Every
+> place is real. Every advantage and disadvantage comes from what is actually
+> there — the ice, the radiation, the gravity, the light-lag, the geometry.
+> Nothing is invented except the people.
 
 ---
 
-# PART 1 — PLACES
+# PART 0 — THE SPACE TRADER BENCHMARK (researched, from the original source)
 
-Where something could plausibly be, and the physical reason anyone would bother.
-"Resources" is what is *locally available*, not what is there in the game today.
+The original game's constants file gives exact numbers:
 
-## The inner system
+| Constant | Value | Meaning |
+|---|---|---|
+| Solar systems | **120** | on a 150 × 110 parsec map |
+| Min spacing / guaranteed neighbour | 6 / **13** pc | every system has at least one neighbour within 13 pc |
+| Fuel range | **14 pc** (starter Gnat) → **20 pc** (best tank) | per jump, refuel at each stop |
+| Wormholes | 6 | fast-travel spice between distant pairs |
+| Tech levels | 8 | Pre-agricultural → Hi-tech |
+| Governments | **17** | Anarchy, Feudal, Theocracy, Corporate, Military, Technocracy… |
+| Special resources | 13 | Mineral rich, Lots of water, Desert, Weird mushrooms… |
+| System status events | 8 | war, plague, drought, boredom, cold, crop failure, lacking workers |
+| Trade goods | 10 | two of them illegal (firearms, narcotics) |
+| Ship types | 10 | |
 
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Mercury — polar cold traps** | Craters at the poles never see sunlight and hold radar-bright deposits, very probably water ice, on the planet closest to the Sun. Peaks nearby get near-continuous sun. | ice, metals, regolith | mining, depot, power station, research |
-| **Mercury — Caloris / equatorial** | ~6.7× Earth's sunlight and no atmosphere: the best solar power in the system, and a low-gravity airless surface ideal for a mass driver. | metals, regolith, **power** | power station, foundry, mass-driver terminal |
-| **Venus — cloud deck, ~50 km** | At that altitude pressure is about one atmosphere and the temperature is survivable, while the surface below is hot enough to melt lead. Breathable air is a lifting gas in a CO₂ atmosphere. | CO₂, nitrogen, sulfur compounds | colony, research, observatory, resort |
-| **Venus — orbit** | Aerobraking makes arrival cheap; a natural waypoint on inner-system routes. | — | terminal, relay, naval station |
-| **A sun-facing collector swarm (~0.3 AU)** | Power density scales as 1/r². Closer is dramatically better, and nothing living needs to be there. | **power** | power station, foundry |
+**The number that actually matters is not 120.** Do the density arithmetic:
+120 systems over 150 × 110 pc is one system per ~140 pc². A starter ship's
+14-pc range disc covers ~615 pc², a max-tank 20-pc disc ~1,260 pc². So the
+player's *per-decision menu* was only about **4–9 reachable systems at any
+moment**. The other 110+ systems exist to give the map texture — regions with
+different character, places you've heard of and never been, room for the
+newspaper to report things far away, and a reason the galactic chart feels big.
 
-## Earth and Luna
+**So: was our 10–14 plan adequate?** As a per-decision menu, our current 7 sites
+already matches Space Trader's effective breadth. What we lack is the **world**
+— 120 named places versus 7 — and that's what starves the faction draw,
+contraband geography, crew variety, and news. The lesson is also structural:
+they *engineered* reachability (no system is ever stranded; a neighbour is
+guaranteed within 13 pc). Our equivalent is guaranteeing the cislunar cluster is
+always populated and always reachable by a starter Courier, whatever the draw.
 
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Low Earth orbit** | The top of the deepest gravity well anyone routinely climbs. Everything from Earth passes through. | — (everything imported *down*) | entrepôt, shipyard, terminal, HQ |
-| **Geostationary belt** | The only orbit where you hang over one spot on Earth. Crowded, contested, valuable. | — | relay, broadcast, power station |
-| **Luna — south pole (Shackleton)** | Crater floors unlit for ~2 billion years hold water ice; the rim gets almost continuous sunlight. Ice and power within a few miles of each other. | ice, propellant, regolith | depot, mining, colony, observatory |
-| **Luna — far side (e.g. Daedalus)** | The only radio-quiet surface in the inner solar system: 3,500 km of rock between you and every transmitter on Earth. There is nowhere else like it. | regolith | **observatory** (uniquely), research, archive |
-| **Luna — Mare Tranquillitatis lava tube** ✦ | Radar confirmed an accessible cave conduit beneath the Tranquillitatis pit in 2024 — tens of metres wide, 130–170 m down. Rock overhead is free radiation shielding and free thermal stability. | regolith, **shelter** | colony, archive, vault, sanatorium |
-| **Luna — mare basalts (Procellarum)** | Titanium- and iron-rich basalt, and a shallow enough well that a mass driver can throw cargo off it. | ore, metal, regolith, oxygen | mining, foundry, mass-driver terminal |
-| **A captured near-Earth asteroid** | Some NEAs are easier to reach than the Moon's surface. Whoever parks one in cislunar space owns a mine next door to the market. | ore, ice, organics | mining, refinery, salvage |
+**Recommendation, with the benchmark in hand:**
+- **Catalog ~60 real places** (the census below finds 62 worth naming).
+- **Occupy 16–24 per run** from the draw — more than my earlier 10–14, because
+  with real orbits the *reachable-right-now* set shrinks and swells with windows
+  and drive tier; a bigger occupied set keeps the per-decision menu near Space
+  Trader's 4–9 at every stage of the game.
+- **The unoccupied places still exist** — as survey targets, mission
+  destinations, and next run's ports. That is what 120-for-a-menu-of-8 was for.
 
-## Mars
-
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Phobos** | Effectively no gravity well — you land and leave for almost nothing. Probably the best depot in the inner system. | ice (probable), regolith | depot, terminal, naval station |
-| **Deimos** | Smaller and higher than Phobos: cheaper still to leave, further from Mars's well. | regolith | depot, relay, observatory |
-| **Jezero crater** | A dried river delta where water pooled; subsurface ice, clay minerals, and a 95% CO₂ atmosphere a machine can turn into oxygen and methane. | volatiles, ice, regolith, food | colony, research, agriculture |
-| **Hellas Planitia** | The deepest basin on Mars, where the atmosphere is thickest — meaning the most radiation shielding and the best parachute landing on the planet. | volatiles, ice, regolith | colony, terminal, sanatorium |
-| **Utopia Planitia** | Orbital radar found a buried ice sheet holding on the order of a large terrestrial lake's worth of water. | ice, volatiles | mining, depot, colony |
-| **Planum Boreum (north polar cap)** | Kilometres-thick water ice, exposed, in enormous quantity. | ice, propellant | mining, depot, research |
-| **Valles Marineris** | A canyon system thousands of kilometres long: exposed stratigraphy, possible ice in shadowed walls, and natural shelter. | ice, ore, regolith | mining, research, settlement |
-| **Olympus Mons / Tharsis** | Volcanic province, high altitude, lava tubes. Thin air is bad for landing and good for launching. | regolith, ore | terminal, research, mining |
-| **Areostationary orbit** | Comms relay for the whole Mars system. | — | relay, terminal, naval station |
-
-## The Belt
-
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Ceres** | Roughly a quarter water by mass, escape velocity ~510 m/s. Far from the Sun and cheaper to leave than our own Moon. | ice, propellant, volatiles, ore | entrepôt, depot, colony, free haven |
-| **Vesta** | Differentiated with a basaltic crust — a protoplanet that got most of the way there. A different mineral profile from anything else in the Belt. | ore, metal, regolith | mining, foundry, research |
-| **Psyche** | Appears to be largely exposed metal, possibly the stripped core of a shattered protoplanet. Iron and nickel at the surface. | ore, metal | mining, foundry, shipyard |
-| **Pallas** | An orbit inclined about 35° to the ecliptic. It is *in* the Belt and expensive to reach anyway — inclination costs like distance. | ore, ice | mining, prison, hideout |
-| **Hygiea** | The fourth-largest belt object and carbonaceous: water and organics rather than metal. | ice, volatiles, organics | mining, refinery, colony |
-| **A C-type rubble pile (Bennu-like)** ✦ | Returned samples contain hydrated minerals, sodium-rich salts from ancient brines, sugars, all five DNA/RNA nucleobases and 14 of the 20 protein amino acids. The chemistry of life is *already there*. | ice, organics, volatiles | mining, research, prospecting camp |
-| **The Jupiter Trojans** | Two enormous swarms of primitive bodies sharing Jupiter's orbit — a second belt nobody thinks about, out where nothing is patrolled. | ice, organics, regolith | prospecting, free haven, hideout |
-
-## Jupiter
-
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Callisto** | The only Galilean moon far enough out to sit mostly clear of the radiation belt. Io's surface dose would kill a person in a day; Callisto's is survivable. | ice, propellant, regolith | colony, depot, research, terminal |
-| **Ganymede** | The largest moon in the solar system and the only one with its own magnetic field, which gives it shielding no other moon has — but it sits deeper in Jupiter's radiation belt and deeper in its own well. | ice, ore, regolith | colony, shipyard, naval base |
-| **Europa** | A subsurface ocean under an ice shell, and a surface radiation dose that is lethal in about a day. The most interesting place in the system to study and among the worst to stay. | ice, volatiles | research (rotating crews), quarantine |
-| **Io** | The most volcanically active body known, coated in sulfur compounds, sitting in the worst of the radiation. No one lives here; machines might work here. | sulfur, metals | robotic mining, penal labour |
-| **Himalia** | A captured outer irregular moon, far outside the radiation belt — a quiet anchorage at Jupiter's distance. | regolith, ice | depot, hideout, naval station |
-
-## Saturn
-
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Titan** | A 1.45-bar atmosphere that is ~95% nitrogen, with lakes of liquid methane and ethane. Nitrogen is the buffer gas every life-support loop needs, and almost nowhere else has it in bulk. Aerobraking arrival. | nitrogen, methane, volatiles, organics | colony, refinery, agriculture, terminal |
-| **Enceladus** | Plumes of water vapour jet from a subsurface ocean into space. Escape velocity is 239 m/s — you barely have to stop to fill a tank. | ice, propellant, volatiles | depot, research, monastery |
-| **The rings** | Almost pure water ice in staggering quantity, already broken into convenient pieces. | ice, propellant | mining, depot |
-| **Iapetus** | Far out from Saturn, cheap to leave, and famously two-toned. A natural outer-system waypoint. | ice, regolith | depot, observatory, relay |
-| **Mimas / Dione / Rhea** | Ordinary ice moons — which is exactly what a supply chain wants. | ice, propellant | depot, mining |
-
-## The ice giants and beyond
-
-| Place | Why anyone is here | Local resources | Fits |
-|---|---|---|---|
-| **Triton (Neptune)** | Retrograde, therefore captured — a Kuiper belt object with nitrogen geysers and a thin nitrogen atmosphere. | nitrogen, ice, volatiles | research, depot, colony |
-| **Miranda / Titania / Oberon (Uranus)** | Ice moons at the edge of practical travel; Miranda's terrain suggests it was shattered and reassembled. | ice, volatiles | research, prospecting |
-| **Uranus / Neptune upper atmosphere** | Deuterium and helium isotopes, scoopable without landing on anything. | fuel isotopes | scooping station *(speculative)* |
-| **Pluto — Sputnik Planitia** | A nitrogen ice glacier, convecting, on a world where nitrogen behaves the way water does on Earth. | nitrogen, ice | research, relay, hermitage |
-| **A Kuiper belt object (Arrokoth-like)** | Untouched primordial material, and the far edge of anywhere anyone goes. | ice, organics | research, hideout, monastery |
+Sources: [original constants header (MAXSOLARSYSTEM 120, GALAXYWIDTH 150, MAXWORMHOLE 6, MAXRANGE 20)](https://github.com/deadjim/dark-nova-android/blob/master/iPhone-Code/Not%20Used/spacetrader.h) · [Wikipedia](https://en.wikipedia.org/wiki/Space_Trader_(Palm_OS)) · [spronck.net](https://www.spronck.net/spacetrader/SpaceTrader.html)
 
 ---
 
-# PART 2 — INSTALLATIONS
+# PART 1 — THE CENSUS: every place in the real solar system worth a dot
 
-**What the something is.** Each type has a characteristic economy: what it turns
-local resources into, what it must import, roughly how many people, and its tech
-level. These are the knobs that make two ports on identical rocks feel different.
+Answering "is it 20 or 100": **it's about sixty.** Below are 62 entries, each a
+genuinely distinct place with a real physical hook. Beyond these you're either
+subdividing (a second crater on Mars) or naming rocks with no distinguishing
+character (the ten-thousandth S-type asteroid). The solar system's supply of
+*personality* is finite, and this is roughly all of it at current knowledge.
 
-### Industry
+Legend: ✦ = fact verified against a source during writing (cited at bottom).
+Everything unmarked is written from general knowledge and **must be
+source-verified before it ships** (project rule 2).
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Extraction camp** | whatever the place has, raw | food, lifesupport, machinery | small | 1–2 | Everything a person needs is shipped in |
-| **Refinery** | refined tier from local raw | machinery, parts, power | medium | 3–4 | Where raw becomes worth moving |
-| **Propellant depot** | propellant | machinery | small | 2–4 | Changes which routes exist at all |
-| **Foundry / heavy works** | parts, machinery | ore, metal, electronics | medium | 4–5 | The first rung off Earth dependency |
-| **Fabrication plant** | electronics, instruments | metal, parts, power | medium | 6 | Rare, precious, and the campaign's whole point |
-| **Shipyard** | hulls and modules | parts, metal, electronics | medium | 5–6 | Where money becomes reach |
-| **Power station** | cheap refined goods (energy is the input to everything) | machinery, reactorparts | small | 4–5 | Solar inside Mars, fission outside it |
-| **Salvage yard** | parts, metal, cheap modules | — | small | 2–3 | Buys wrecks; sells things with a history |
+## The Sun's neighbourhood (3)
 
-### People
+| # | Place | The real hook |
+|---|---|---|
+| 1 | **Sub-Mercurian solar swarm (~0.3 AU)** | Sunlight at 0.3 AU is ~11× Earth's. The best power in the system, and nothing alive needs to be there. A place robots work and people only visit. |
+| 2 | **Sun–Earth L1 (1.5M km sunward)** | Where SOHO, ACE and DSCOVR actually sit — the solar-storm early-warning post. Whoever holds it sees a coronal mass ejection *before* everyone else's electronics do. Information as a product, literally. |
+| 3 | **Sun–Earth L3 (behind the Sun)** | Permanently occluded from Earth — the one place in the inner system nobody can watch or call. Nothing legitimate needs to be there. That is the point. |
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Colony / settlement** | a little of everything local | food, lifesupport, medical, machinery | large | 2–5 | The biggest market, and the most dependent |
-| **Agricultural station** | food | water, power, volatiles | medium | 3–4 | Needs light and water; changes what a region can support |
-| **Sanatorium** (low-g medical) | — | medical, food, lifesupport | small | 4–5 | Low gravity as a treatment; passengers, not cargo |
-| **Quarantine station** | — | medical, lifesupport | small | 3 | Deliberately isolated. Nobody docks unless told to |
-| **Penal colony** | ore, refined goods, cheaply | food, lifesupport, arms | medium | 1–2 | Labour that isn't paid; grim, and produces below cost |
-| **Refugee / relief camp** | — | food, medical, lifesupport | large | 1 | Desperate demand, no money. Pays in standing |
-| **Resort / casino** | — | food, luxuries, medical | small | 5 | Passengers and money that came from somewhere |
+## Earth orbit and cislunar space (6)
 
-### Knowledge
+| # | Place | The real hook |
+|---|---|---|
+| 4 | **Low Earth orbit** | The top of the deepest gravity well anyone routinely climbs. Everything from Earth passes through; nothing is cheap. |
+| 5 | **Geostationary belt** | The only altitude where you hover over one spot on Earth. Finite, crowded, contested — orbital real estate with an address. Dead satellites get boosted to a "graveyard orbit" 300 km higher: a salvage field already exists there. |
+| 6 | **The Van Allen belts** | Not a place to stop — a hazard to route around. Trapped radiation that made even Apollo plan its trajectory. Teaches that near-Earth space has *weather and terrain*. |
+| 7 | **Earth–Moon L1** | The saddle point between Earth and Moon — the natural staging post for everything cislunar. |
+| 8 | **Earth–Moon L2 (behind the Moon)** ✦ | The only way to talk to the lunar far side. China's Queqiao relay has operated in a halo orbit here since 2018 — the first spacecraft ever stationed on one. A comm node that is a *monopoly* by geometry. |
+| 9 | **Sun–Earth L2 (1.5M km anti-sunward)** | Where JWST sits: permanent shadow cold, full-sky view, easy comms. The observatory address of the inner system. |
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Research station** | survey data, samples | instruments, electronics, lifesupport | small | 5–6 | Pays well for instruments; knows things |
-| **Observatory** | astronomical data | instruments, electronics | small | 5 | Needs dark, cold, quiet, or vacuum |
-| **University / academy** | trained crew *(hire better here)* | instruments, food, electronics | medium | 6 | Where a captain's skills could actually improve |
-| **Archive / data haven** | information, fresher intel | electronics, power | small | 4–5 | Buys logs, derelict data, quiet favours |
-| **Comms relay** | **fresher market intel** | electronics, reactorparts | tiny | 4–6 | Directly attacks the light-lag penalty. A real upgrade path |
-| **Prospecting camp** | claims, survey data | everything | tiny | 1 | Temporary. May not be there next run |
+## Luna (9)
 
-### Power
+| # | Place | The real hook |
+|---|---|---|
+| 10 | **Shackleton crater rim, south pole** | Crater floors unlit for ~2 billion years hold water ice; nearby rim ridges get near-continuous sunlight ("peaks of eternal light"). Ice and power within a few km of each other — the reason every current lunar program aims here. |
+| 11 | **Peary crater, north pole** | The south pole's quieter twin — polar volatiles and long illumination without the crowds or the politics. A second polar claim for a second faction. |
+| 12 | **Mare Tranquillitatis lava-tube conduit** ✦ | Radar confirmed an accessible cave conduit under the Tranquillitatis pit in 2024 — tens of metres wide, 130–170 m down. Rock overhead is free radiation shielding and thermal stability. A vault, an archive, a buried town. |
+| 13 | **Tranquility Base** ✦ | Apollo 11's landing site — protected by actual US law (the One Small Step to Protect Human Heritage in Space Act, 2020). The first legally recognised heritage site off Earth. A place you may visit and must not touch: a pilgrimage destination, and a diplomatic incident waiting for whoever ignores it. |
+| 14 | **Reiner Gamma, Oceanus Procellarum** ✦ | A bright tadpole-shaped swirl co-located with one of the strongest magnetic anomalies on the Moon — a *mini-magnetosphere* spanning ~360 km that partially deflects the solar wind. A natural radiation shelter on an airless world, beautiful and still not fully explained. If anywhere off Earth becomes "sacred ground," it's this. |
+| 15 | **Lunar far side (Daedalus crater)** | 3,500 km of rock between you and every transmitter humanity has. The only radio-quiet zone left anywhere near Earth — *the* observatory site, and useless for anything that needs to phone home (see #8). |
+| 16 | **Mare Procellarum titanium basalts** | Ilmenite-rich mare basalt: titanium, iron, and oxygen you can bake out of the rock. Bulk industry's lunar address, and a shallow enough well for a mass driver. |
+| 17 | **South Pole–Aitken basin (far side)** | The oldest, deepest impact basin on the Moon — mantle material excavated and lying on the surface. Where you dig to learn what the Moon is made of. |
+| 18 | **Lunar south-pole memorials** | Eugene Shoemaker's ashes were deliberately impacted near the south pole aboard Lunar Prospector (1999) — the only human burial on another world. Quiet, real, and exactly the kind of fact a child remembers forever. |
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Naval base** | escort, bounty work | arms, food, parts, reactorparts | medium | 4–5 | Raises police everywhere near it |
-| **Fortress / blockade post** | — | arms, food, parts | small | 4 | Sits on a chokepoint and charges for passage |
-| **Customs house** | — | — | small | 4–6 | The port whose entire job is inspecting you |
-| **Mercenary compound** | arms, escort | food, parts, arms | small | 3–4 | Sells the same services to both sides |
-| **Embassy / neutral ground** | — | luxuries, food | small | 5 | Nobody's law. Everyone's meeting place |
+## Interplanetary infrastructure (3)
 
-### Trade
+| # | Place | The real hook |
+|---|---|---|
+| 19 | **An Aldrin cycler** ✦ | A habitat on a permanent Earth–Mars cycling orbit: 146 days per crossing, repeating every 2.135 years, needing almost no propellant ever again. **A port that is always moving** — you don't fly to it, you catch it. Miss the rendezvous and it's gone for two years. |
+| 20 | **A captured near-Earth asteroid, parked cislunar** | Some NEAs cost less delta-v to reach than the lunar surface. Whoever drags one home owns a mine next door to the market. (The samples say what's in them — see #34.) |
+| 21 | **Sun–Earth L4/L5** | Sixty degrees ahead of and behind Earth — stable, permanent, with a sightline around the Sun that Earth never has. The solution to the conjunction blackout (see PART 2), which makes a relay here a product. |
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Entrepôt** | — (moves everything) | — | large | 5–7 | Everything available, nothing cheap |
-| **Free haven** | — | everything | medium | 3–4 | Contraband is legal. Nobody asks. Nobody helps |
-| **Terminal / transfer station** | — | food, propellant | medium | 4 | Passengers and transhipment; a place you pass through |
-| **Company town** | whatever the company extracts | food, lifesupport | medium | 3–4 | The company owns the air you breathe |
+## Venus (3)
 
-### Belief
+| # | Place | The real hook |
+|---|---|---|
+| 22 | **The cloud deck, ~50 km up** | At that altitude, pressure is ~1 atm and temperature is survivable — the most Earth-like environment off Earth — while the surface below runs hot enough to melt lead. Breathable air is a *lifting gas* in CO₂. Cities that float, and can never land. |
+| 23 | **Venus orbit** | Aerobraking makes Venus one of the cheapest arrivals in the system, and its short synodic period makes it a frequent window. The natural inner-system junction — a place you pass through on the way to everywhere. |
+| 24 | **Maxwell Montes / the surface** | 460 °C and 90 atmospheres. Machines last hours. Whatever works down there is remotely operated from the clouds — a place with jobs and no residents. |
 
-| Type | Produces | Imports | Pop | Tech | Character |
-|---|---|---|---|---|---|
-| **Monastery / retreat** | — | food, lifesupport | small | 2–3 | Shelters travellers. Trades little, remembers everything |
-| **Ideological commune** | food, refined goods | machinery, medical | medium | 2–4 | Self-sufficiency as doctrine — the campaign's thesis, lived |
-| **Hermitage** | — | almost nothing | tiny | 1 | Somebody chose to be this far from everyone |
+## Mercury (2)
 
----
+| # | Place | The real hook |
+|---|---|---|
+| 25 | **Polar cold traps** | Permanently shadowed polar craters hold radar-bright deposits — almost certainly water ice — on the closest planet to the Sun. Ice and 6.7× Earth sunlight within kilometres. The "near ≠ cheap" lesson: MESSENGER needed six flybys over 6.6 years just to stop here. |
+| 26 | **Caloris / equatorial solar fields** | The best solar power on any surface in the system, no atmosphere in the way, and gravity shallow enough for a mass driver. A foundry that runs on sunlight and throws its product into space. |
 
-# PART 3 — OPERATORS
+## Mars system (10)
 
-**Who runs it.** The operator sets law, tariff, what's banned, and how the place
-treats you. The existing four (`consortium`, `agency`, `corporate`,
-`independent`) are the seed of this; here is the fuller pool.
+| # | Place | The real hook |
+|---|---|---|
+| 27 | **Phobos (Stickney crater)** | Effectively no gravity well — land and leave for almost nothing. The best fuel depot in the inner system, and the natural quarantine/staging stop above Mars. |
+| 28 | **Deimos** | Higher and smaller: even cheaper to leave, better sightlines, out of the way. The relay-and-watchtower moon. |
+| 29 | **Jezero crater** | A dried river delta; subsurface ice, clays, and a 95% CO₂ atmosphere machines can turn into oxygen and methane. The only place off Earth where a colony can fuel itself from the air. |
+| 30 | **Hellas Planitia** | The deepest basin on Mars — the thickest air on the planet, meaning the most radiation shielding and the best parachute landing. Where the *second* wave settles. |
+| 31 | **Utopia Planitia buried ice** | Orbital radar found a buried ice sheet holding on the order of a Great-Lake's worth of water under mid-latitude plains. Water without going polar. |
+| 32 | **Planum Boreum, the north polar cap** | Kilometres-thick water ice, exposed, in quantity. The industrial water source — and six months of polar night to survive while mining it. |
+| 33 | **Valles Marineris** | A canyon system as long as the continental US: exposed strata, shadowed walls that may hold ice, natural shelter, and terrain that breaks line-of-sight — smuggler country on an open planet. |
+| 34 | **Arsia Mons cave skylights, Tharsis** | Collapsed pits on the volcano's flank open into lava tubes — shelter with kilometres of rock overhead, high on the launch-friendly Tharsis bulge. |
+| 35 | **Cerberus Fossae** | Where InSight localised present-day marsquakes — the most seismically alive ground on Mars, suggesting deep activity and possibly deep heat. A research claim with an energy rumour attached. |
+| 36 | **Areostationary orbit** | Mars's GEO: hang over one settlement forever. The relay spine of any Martian civilisation, and a chokepoint someone will eventually tax. |
 
-### State
+## The Belt (8)
 
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **National space agency** | very high | low | nuclear, arms | Strict, thorough, slow. Low tariffs, real inspections |
-| **Supranational treaty authority** | highest | low | everything controlled | Exists to enforce safeguards. The worst place to be caught |
-| **Colonial administration** | high | high | arms | A homeland governing a settlement that resents it |
-| **Chartered company-state** | medium-high | high | fissiles | Corporate order with a flag |
+| # | Place | The real hook |
+|---|---|---|
+| 37 | **Ceres (Occator's bright faculae)** | A quarter water by mass, escape velocity ~510 m/s, and bright salt deposits at Occator left by brines rising from a relict subsurface ocean. The water tower of the system — far away, and almost free to leave. |
+| 38 | **Vesta** | A differentiated protoplanet with a basaltic crust — geology like a small terrestrial planet, unlike anything else in the Belt. |
+| 39 | **Psyche** | Appears to be largely exposed metal — possibly a stripped protoplanet core. Iron and nickel at the surface, no digging. |
+| 40 | **Pallas** | Big, and in an orbit inclined ~35° — *in* the Belt yet brutally expensive to reach. Teaches that inclination costs like distance. The place you go to not be followed. |
+| 41 | **Hygiea** | Fourth-largest, carbonaceous — water and organics rather than metal. The Belt's *other* economy. |
+| 42 | **A Bennu-type C-rubble pile** ✦ | Returned samples (2023–25) held sodium-rich salts from ancient brines, bio-essential sugars including ribose, all five DNA/RNA nucleobases and 14 of the 20 protein amino acids. The chemistry of life, free-floating. A prospecting and research bonanza in one small rock. |
+| 43 | **The Kirkwood gaps** | Not a place — an absence. Jupiter's resonances have swept these orbital lanes almost clean, and anything drifting into one gets perturbed out. The Belt has *shipping lanes and shoals*, and they're gravitational. |
+| 44 | **The Hungaria group (inner Belt fringe)** | The closest asteroid family to Mars — the first rocks a Belt-bound prospector reaches, and the natural "shallow end" of asteroid mining. |
 
-### Military
+## Jupiter system (6)
 
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **Navy / patrol fleet** | very high | medium | arms, fissiles | Region is safe from raiders and hostile to smugglers |
-| **Local militia** | medium | low | — | Polices its own, hates outside navies, sells you arms |
-| **Private military contractor** | low | medium | — | Sells arms openly; law is whatever the contract says |
-| **Occupying force** | high | punitive | most things | Blockade, shortage, resentment, and desperate prices |
+| # | Place | The real hook |
+|---|---|---|
+| 45 | **Callisto** | The only Galilean moon sitting mostly outside the radiation belt — Io's surface dose kills in a day; Callisto's is survivable. Why every crewed-Jupiter study picks it. |
+| 46 | **Ganymede** | Largest moon in the system, and the only one with its own magnetic field — shielding no other moon has, at the price of sitting deeper in Jupiter's belts and its own gravity. Callisto's rival, with opposite trade-offs. |
+| 47 | **Europa** | A global ocean under the ice, and a surface dose lethal in about a day. The most scientifically valuable and least habitable place at Jupiter — rotating crews, robot submarines, and quarantine rules. |
+| 48 | **Io** | The most volcanically active body known, drenched in radiation, coated in sulfur. Nobody lives here. Machines, or people who had no choice, work here. |
+| 49 | **Himalia (outer irregulars)** | A captured moon far outside the radiation belt — the quiet anchorage of the Jupiter system, where things wait unobserved. |
+| 50 | **The Jupiter Trojans (L4 "Greeks" / L5 "Trojans")** | Two swarms of primitive bodies sharing Jupiter's orbit — a second asteroid belt nobody patrols, five AU from the nearest law. NASA's Lucy is en route because they're pristine; smugglers would go for the same reason. |
 
-### Corporate
+## Saturn system (6)
 
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **Extractive combine** | medium-low | high | — | Company town. Light law for everyone but competitors |
-| **Energy / propellant utility** | medium | low | — | Fuel is cheap here and that changes the map |
-| **Shipbuilder consortium** | medium | medium | — | Hulls and modules nobody else sells yet |
-| **Pharmaceutical house** | high | high | — | Medicine is made here and licensed everywhere |
-| **Agricultural combine** | medium | medium | — | Food, in quantity, in a place that shouldn't have it |
-| **Insurance underwriter** | high | low | — | Runs rescue stations because claims are expensive |
-| **Bank / clearing house** | high | low | — | Money moves through here. So do favours |
-| **Media / broadcast house** | low | low | — | Sells information, and reputation, and rumours |
+| # | Place | The real hook |
+|---|---|---|
+| 51 | **Titan** | A 1.45-bar atmosphere, ~95% nitrogen, with methane lakes. The only place beyond Earth you could walk unpressurised (suited for cold and air, not vacuum). Nitrogen is the buffer gas every life-support loop needs — Titan is the outer system's life-support well. Aerobraking arrival. |
+| 52 | **Enceladus** | Geysers from a subsurface ocean jet straight into space; escape velocity 239 m/s. You can practically fill your tanks from the plume without landing. The refuelling miracle of the outer system. |
+| 53 | **The rings** | Nearly pure water ice, pre-crushed, in staggering quantity. Mining without mining. |
+| 54 | **Iapetus** | Two-toned (one hemisphere coal-dark, one ice-bright), with an equatorial ridge of mountains 13 km high that nobody fully explains. Far out and cheap to leave — the outer waypoint, and the strangest landscape in the system. |
+| 55 | **Rhea / Dione / Mimas** | Ordinary ice moons — exactly what a supply chain wants. The unglamorous middle of the Saturn economy. |
+| 56 | **Phoebe** | Retrograde and captured — a Kuiper belt object that came to Saturn, orbiting far outside everything else. The system's back door. |
 
-### Civil
+## The far system (6)
 
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **Settler republic** | medium | low | — | Governs itself, badly and proudly |
-| **Workers' cooperative** | medium | low | — | Owned by the people doing the work. Fair, and slow |
-| **Free port / no authority** | very low | minimal | nothing | Everything is legal. So is what happens to you |
-| **Captains' guild** | medium | low | — | Contracts, discounts, and a warning before trouble |
-| **Homesteaders** | low | none | — | A handful of families, and no institution at all |
+| # | Place | The real hook |
+|---|---|---|
+| 57 | **Uranus's moons (Miranda, Titania)** | Miranda looks shattered and reassembled — cliffs 20 km high. Titania is the largest. At the edge of practical chemical travel; the definition of "the drive eras redraw the map." |
+| 58 | **Neptune orbit / Triton** | Triton orbits *backwards* — a captured Kuiper belt object with nitrogen geysers and a thin nitrogen atmosphere. A KBO you can study without leaving the planets. |
+| 59 | **A Centaur (Chariklo)** | Small bodies between Jupiter and Neptune on unstable orbits — Chariklo has *rings*. Waystations that won't be on the same orbit in ten thousand years. |
+| 60 | **Pluto–Charon (Sputnik Planitia)** | A convecting nitrogen-ice glacier on a world where nitrogen does what water does on Earth; Charon hangs fixed in the sky (mutual tidal lock). The far shore. |
+| 61 | **An Arrokoth-type cold-classical KBO** | Untouched primordial material on an orbit that was never stirred — the oldest unprocessed stuff reachable. The last survey target. |
+| 62 | **Ice-giant atmosphere scooping** *(speculative, label it)* | Uranus and Neptune hold helium-3 and deuterium in scoopable upper atmospheres. Real chemistry, speculative economics — flag per §16 and let the late campaign argue about it. |
 
-### Belief and knowledge
-
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **Monastic order** | high (their own) | none | arms, fissiles | Hospitality as doctrine. Long memory |
-| **Outer-dark faith** | medium | low | arms | Shelters travellers, shuns the inner worlds |
-| **Utopian movement** | high | none | arms, contraband | Ideology as law, and it *is* enforced |
-| **University consortium** | high | low | fissiles, arms | Where crew get better and instruments are wanted |
-| **Itinerant surveyors** | none | none | — | Trade in where the ice is and where it's dangerous |
-
-### Grey and criminal
-
-| Operator | Law | Tariff | Bans | Character |
-|---|---|---|---|---|
-| **Smuggling syndicate** | very low | low | — | Contraband cheap. Everything else has a price too |
-| **Pirate band** | none | — | — | Not a port so much as a risk with a dock |
-| **Cartel** | low | extortionate | competitors' goods | Controls one scarce good absolutely |
-| **Salvage clan** | low | low | — | Family business. Half of it is legal |
+**Census verdict: 62 named, distinct, real places** — call it **~60**. Your 40
+guess was low but the right order of magnitude; 100 is not there without
+padding; 20 would waste most of what the solar system actually offers.
 
 ---
 
-# PART 4 — HOW THEY COMBINE
+# PART 2 — THE SPACE BETWEEN: features of space itself as game content
 
-## The derivation
+Joshua asked for "the nature of the space itself." These aren't sites — they're
+**weather, terrain, and clocks**, and they're all real:
 
-```
-produces   = place.resources  ∩  installation.canMake
-consumes   = installation.needs  +  population needs
-techLevel  = installation.baseTech  ±  operator modifier
-government = operator (law, tariff, bans)
-population = installation.scale  ×  place habitability
-pressure   = whatever the three disagree about
-```
-
-**The interesting sites are where the three fight.** A research station on
-Europa run by a supranational authority is a place with enormous instrument
-demand, no local industry, lethal surroundings and the strictest customs in the
-game. A free haven in the Trojans run by a smuggling syndicate is the same rock
-with the opposite everything.
-
-## What varies per seed, and what never does
-
-| Never changes | Changes every run |
-|---|---|
-| Which places exist and where they are | Which places have anything on them |
-| The physical `why` of each | What kind of installation it is |
-| What can be extracted there | Who runs it |
-| Delta-v, sunlight, radiation, gravity | Its tech level, law, tariff, market |
-
-A run might have 10–14 *occupied* sites drawn from ~40 places. **The places you
-never visit in a given run are as important as the ones you do** — they are why
-the next run is different.
-
-## Constraints worth encoding
-
-Not every combination is plausible, and the implausible ones are worth blocking:
-
-- **No agriculture without light or power.** Titan can farm under fission; the
-  Trojans cannot farm at all.
-- **No colony where radiation kills.** Europa's surface and Io get rotating
-  crews, robots, or prisoners — never families.
-- **No heavy industry without metal nearby.** A foundry on Enceladus is silly.
-- **No fabrication plant below tech 6**, and tech 6 needs an established
-  industrial base — so an outer-system chip fab is a *late-campaign achievement*,
-  not a starting condition.
-- **A free haven needs somewhere to hide.** It belongs where patrols are thin:
-  the Belt, the Trojans, the outer moons — never in Earth orbit.
-- **The bigger the population, the more it must import.** That is the whole
-  dependency thesis, and it should be arithmetic, not flavour.
-
-## Why this fixes what's currently broken
-
-- **`mods.produces` becomes reachable.** With 40 places and drawn installations,
-  most ports *won't* trade most goods — so a faction bringing propellant to a
-  port that has none is a real event.
-- **Contraband gets a real map.** Free havens and syndicate ports are drawn, so
-  the smuggling geography changes every run instead of being "Ceres, always."
-- **Tech levels spread out.** Prospecting camps at 1, fabrication plants at 6, and
-  a reason to fly to a specific port for a specific hull.
-- **Crew hiring gets interesting.** A university produces good crew; a penal
-  colony produces desperate ones.
-- **Missions write themselves.** A relief camp needs food. A quarantine station
-  needs medicine and no questions. A blockade post wants somebody to run it.
+| Feature | The reality | The mechanic it becomes |
+|---|---|---|
+| **Solar conjunction blackouts** ✦ | Every ~26 months the Sun sits between Earth and Mars, and NASA stops commanding its Mars fleet for ~2 weeks — signals through the corona genuinely corrupt. Every superior planet has an equivalent. | A recurring, *predictable* comms blackout: intel from occluded regions goes stale, prices there become bets, smugglers time runs for conjunction. An L4/L5 relay (site #21) is the counter — and now that relay has a reason to exist. |
+| **Light-lag** | Already in the game (intel freshness). | Keep; the atlas gives it more distance to matter over. |
+| **Synodic windows** | Already in the game (transfer costs vary with geometry). | The cycler (site #19) turns the window itself into a bus schedule. |
+| **Solar storms** | Coronal mass ejections are directional and take ~1–3 days to arrive at 1 AU — meaning a warning post at Sun–Earth L1 (#2) sees them first. | Space's weather event: a storm degrades electronics in transit, grounds departures, spikes demand for parts. Holding L1 data = selling forecasts. |
+| **Radiation belts** | Van Allen (#6) and Jupiter's belts (#45–48) are mapped, real, and lethal on real timescales. | Terrain: routes and stay-times are constrained, shielding is cargo mass, and Callisto-vs-Io is a habitability lesson the player *feels*. |
+| **Kirkwood gaps** | Resonance lanes swept clean in the Belt (#43). | Navigational texture: the Belt has structure, not uniform rubble. |
+| **Low-energy transfers** | The Interplanetary Transport Network: near-zero-fuel routes along gravitational manifolds, at the price of being achingly slow. | The tramp-freight option: cheap, slow, and the reason patience is a strategy. |
+| **Heritage law** ✦ | The One Small Step Act (2020) already protects Apollo sites in US law. | A no-touch zone with reputational (and legal) teeth — proof that "sacred site" isn't even speculative. |
 
 ---
 
-## Implementation sketch (for whoever builds this)
+# PART 3 — INSTALLATIONS (what gets built)
 
-Three data files and one generator, mirroring how factions already work:
+*(Unchanged in substance from the first draft; ~30 types. Summary table —
+each carries `produces`, `needs`, `scale`, `baseTech`, `requires`.)*
 
-- `data/places.js` — the ~40 fixed locations. Real, sourced, educational. Carries
-  `why`, `resources`, `system`, `body`, `hazards`, `habitability`, `dvNote`.
-- `data/installations.js` — the ~30 types above, each with `produces`, `needs`,
-  `scale`, `baseTech`, `requires` (e.g. `light`, `metal`, `shelter`).
-- `data/operators.js` — the ~25 operators, each with `law`, `tariff`, `bans`,
-  `disposition`, `techMod`, `offers`.
-- `sites.js` — `spawnSites(seed)`: draw N places, draw a legal installation for
-  each (filtered by `requires` against the place), draw an operator (filtered by
-  plausibility), derive the market profile. Seeded and pure, exactly like
-  `spawnFactions`.
+**Industry:** extraction camp · refinery · propellant depot · foundry ·
+fabrication plant (tech 6, the campaign prize) · shipyard · power station ·
+salvage yard · mass-driver terminal
 
-The existing `SITES` array becomes the *output* of that function rather than a
-hand-written constant, and `spawnFactions` then places its actors over the top —
-so a run has both a drawn map and drawn politics.
+**People:** colony · agricultural station · sanatorium (low-g medicine) ·
+quarantine station · penal colony · relief camp · resort
 
-**Migration note:** every save stores `player.at` as a site id, and markets are
-keyed by site id. Site ids must therefore be stable and derived from the PLACE
-(`ceres`, `titan`, `luna-farside`), never from the installation — otherwise a
-save's home port stops existing when the shape of the generator changes.
+**Knowledge:** research station · observatory · university (better crew hires) ·
+archive/data haven · comms relay (buys down light-lag/conjunction) ·
+prospecting camp · early-warning post (new — site #2's job)
+
+**Power:** naval base · blockade post · customs house · mercenary compound ·
+embassy/neutral ground
+
+**Trade:** entrepôt · free haven · terminal · company town · cycler habitat
+(new — site #19's job: a moving terminal)
+
+**Belief:** monastery/retreat · ideological commune · hermitage ·
+pilgrimage site (new — #13, #14, #18: heritage ground, visited, never worked)
+
+## Constraints (plausibility filter)
+
+No farms without light or power. No families where radiation kills (#47, #48 —
+rotating crews, robots, or prisoners only). No heavy industry without metal.
+No fabrication below tech 6. Free havens only where patrols are thin (Belt,
+Trojans, outer irregulars — never cislunar). Pilgrimage sites only at real
+heritage ground. **The bigger the population, the more it imports — arithmetic,
+not flavour.**
+
+---
+
+# PART 4 — OPERATORS (who runs it)
+
+*(Unchanged in substance; ~25 operators.)* Space Trader's benchmark says the
+variety target is right: they shipped **17 government types** and each one
+changed police presence and what was legal. Ours: state (agency, treaty
+authority, colonial administration, chartered company-state) · military (navy,
+militia, PMC, occupying force) · corporate (extractive combine, propellant
+utility, shipbuilder, pharma house, agri-combine, insurance underwriter, bank,
+media house) · civil (settler republic, workers' co-op, free port, captains'
+guild, homesteaders) · belief/knowledge (monastic order, outer-dark faith,
+utopian movement, university consortium, itinerant surveyors) · grey (smuggling
+syndicate, pirate band, cartel, salvage clan).
+
+Each sets `law`, `tariff`, `bans`, `disposition`, `techMod`, `offers` — the
+machinery for all of which already exists in the game.
+
+---
+
+# PART 5 — RESEARCH AS PLAY: the facts are the treasure
+
+Joshua's instinct, and it closes the loop on the educational mission: **the
+atlas facts should be discoverable in-game, not just ambient.**
+
+- **Survey missions** target census entries: *"Radar-map the Utopia ice sheet"*
+  → the fact is revealed in the player's atlas → depot viability there is now
+  known → the player planned their next run around a true thing they learned.
+- **The survey camera** (the existing photo layer, per design.md §13) is the
+  instrument: imaging, spectroscopy, thermal mapping each reveal different
+  fields of a place's entry.
+- **The Archive / university buys data**: facts have a *price*, which is the
+  game's thesis (information is a resource) applied to its own teaching content.
+- **An in-game atlas screen** collects what's been learned, entry by entry —
+  the passport/stamp idea from Shutterbug, grown up: you finish a campaign
+  owning a mental map of the real solar system because you needed one to win.
+
+---
+
+# PART 6 — IMPLEMENTATION SKETCH
+
+Three data files and one generator, mirroring `spawnFactions`:
+
+- `data/places.js` — the ~60 census entries. Real, sourced, educational.
+  `{ id, name, system, body|orbit, why, resources, hazards, habitability,
+  light, gravity, commsNote }`. **Ids derive from the place, never the
+  installation** (`ceres`, `titan`, `luna-farside`) — saves key `player.at` and
+  markets by site id, and home ports must not stop existing when the generator
+  changes.
+- `data/installations.js` — ~30 types with `produces`, `needs`, `scale`,
+  `baseTech`, `requires` (light, metal, shelter, ice…).
+- `data/operators.js` — ~25 with `law`, `tariff`, `bans`, `disposition`,
+  `techMod`, `offers`.
+- `sites.js` → `spawnSites(seed)`: draw 16–24 places (guaranteeing the cislunar
+  cluster), draw a legal installation per place (filtered by `requires`), draw a
+  plausible operator, derive the market. Seeded and pure. `spawnFactions` then
+  lays its actors over the top: a drawn map *and* drawn politics.
+
+Phasing that keeps every step shippable: **(1)** hand-write ~8 new fixed sites
+from the census (inner system + Ganymede) to relieve the 7-site squeeze now;
+**(2)** build `spawnSites` over the full census; **(3)** add conjunction
+blackouts and the cycler; **(4)** the in-game atlas screen and survey missions.
 
 ---
 
 ## Sources checked while writing (2026-07-26)
 
-- Lunar lava tube ✦ — [Radar evidence of an accessible cave conduit on the Moon below the Mare Tranquillitatis pit, *Nature Astronomy*, 2024](https://www.nature.com/articles/s41550-024-02302-y) · [ESA summary](https://blogs.esa.int/caves/2024/12/05/a-shelter-on-the-moon/)
-- Bennu organics ✦ — [NASA: Asteroid Bennu Sample Reveals Mix of Life's Ingredients](https://www.nasa.gov/news-release/nasas-asteroid-bennu-sample-reveals-mix-of-lifes-ingredients/) · [Bio-essential sugars in samples from asteroid Bennu, *Nature Geoscience*, 2025](https://www.nature.com/articles/s41561-025-01838-6) · [Prebiotic organic compounds in samples of asteroid Bennu, *PNAS*, 2025](https://www.pnas.org/doi/10.1073/pnas.2512461122)
+**Space Trader:** [original constants header](https://github.com/deadjim/dark-nova-android/blob/master/iPhone-Code/Not%20Used/spacetrader.h) · [Wikipedia](https://en.wikipedia.org/wiki/Space_Trader_(Palm_OS)) · [spronck.net](https://www.spronck.net/spacetrader/SpaceTrader.html) · [GameFAQs strategy guide](https://gamefaqs.gamespot.com/palmos/917550-space-trader/faqs/23321)
 
-Everything else in this document is written from general knowledge and **must be
-verified against a primary source before it becomes player-facing text.**
+**Solar system, verified this session (✦):**
+- Mars conjunction blackout — [NASA/JPL](https://www.jpl.nasa.gov/news/nasas-mars-fleet-will-still-conduct-science-while-lying-low/) · [Space.com](https://www.space.com/nasa-mars-blackout-solar-conjunction-2021) · [CNN](https://edition.cnn.com/2023/11/15/world/nasa-mars-missions-solar-conjunction-scn)
+- Queqiao at Earth–Moon L2 — [SpaceNews](https://spacenews.com/change-4-relay-satellite-enters-halo-orbit-around-earth-moon-l2-microsatellite-in-lunar-orbit/) · [The Planetary Society](https://www.planetary.org/articles/0519-change-4-relay-satellite) · [Space: Science & Technology](https://spj.science.org/doi/10.34133/2021/3471608)
+- Reiner Gamma mini-magnetosphere — [NASA Science](https://science.nasa.gov/resource/lunar-swirl-reiner-gamma/) · [Communications Physics](https://www.nature.com/articles/s42005-018-0012-9) · [ESA](https://www.esa.int/Science_Exploration/Space_Science/SMART-1/Reiner_Gamma_swirl_magnetic_effect_of_a_cometary_impact)
+- Aldrin cycler (146-day legs, 2.135-yr period) — [Wikipedia/Mars cycler](https://en.wikipedia.org/wiki/Mars_cycler) · [buzzaldrin.com](https://buzzaldrin.com/space-vision/advocacy/cycling-pathways-to-occupy-mars/) · [Acta Astronautica](https://www.sciencedirect.com/science/article/abs/pii/S009457651731826X)
+- One Small Step Act (Pub. L. 116-275, Dec 31 2020) — [Congress.gov](https://www.congress.gov/bill/116th-congress/senate-bill/1694) · [Space.com](https://www.space.com/one-small-step-space-heritage-act.html)
+- Tranquillitatis lava tube — [Nature Astronomy 2024](https://www.nature.com/articles/s41550-024-02302-y) · [ESA](https://blogs.esa.int/caves/2024/12/05/a-shelter-on-the-moon/)
+- Bennu samples — [NASA](https://www.nasa.gov/news-release/nasas-asteroid-bennu-sample-reveals-mix-of-lifes-ingredients/) · [Nature Geoscience 2025](https://www.nature.com/articles/s41561-025-01838-6) · [PNAS 2025](https://www.pnas.org/doi/10.1073/pnas.2512461122)
+
+**Everything unmarked must be verified against a primary source before it
+becomes player-facing text** (project rule 2 / design.md §16).
