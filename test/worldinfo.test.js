@@ -40,13 +40,13 @@ describe("system character is well-formed", () => {
 
   it("a pirate-controlled region reads as more dangerous than a patrolled one", () => {
     // Construct the two extremes so the check doesn't depend on the random draw.
-    const pirates = { player: { at: "ceres-port" }, factions: [{ factionId: "black-sun", siteId: "ceres-port", standing: -30 }], markets: {} };
-    const patrol = { player: { at: "leo" }, factions: [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }], markets: {} };
+    const pirates = { player: { at: "ceres-port" }, factions: [{ factionId: "black-sun", siteId: "ceres-port", system: "belt", standing: -30 }], markets: {} };
+    const patrol = { player: { at: "leo" }, factions: [{ factionId: "sol-patrol", siteId: "leo", system: "earth", standing: 5 }], markets: {} };
     expect(systemInfo(pirates, "ceres-port").danger).toBeGreaterThan(systemInfo(patrol, "leo").danger);
   });
 
   it("a crisis faction shows up as pressure", () => {
-    const g = { player: { at: "jezero-station" }, factions: [{ factionId: "shortage", siteId: "jezero-station", standing: 15 }], markets: {} };
+    const g = { player: { at: "jezero-station" }, factions: [{ factionId: "shortage", siteId: "jezero-station", system: "mars", standing: 15 }], markets: {} };
     expect(systemInfo(g, "jezero-station").pressure.toLowerCase()).toContain("crisis");
   });
 });
@@ -74,10 +74,12 @@ describe("the news feed", () => {
     expect(newsReach(SITE_BY_ID["callisto-station"]).far).toBe(false);
 
     // Concretely: at low-tech Callisto, every faction headline is about the
-    // Jupiter system (its own), never a distant one.
-    const local = generateNews(at("callisto-station", 42));
+    // Jupiter system (its own), never a distant one. Sites are generated per
+    // run now, so look each one up in the game's OWN world, not the static list.
+    const g = at("callisto-station", 42);
+    const local = generateNews(g);
     for (const it of local.items) {
-      if (it.siteId) expect(SITE_BY_ID[it.siteId].system).toBe("jupiter");
+      if (it.siteId) expect(g.sites.find((s) => s.id === it.siteId).system).toBe("jupiter");
     }
   });
 
@@ -148,7 +150,7 @@ describe("police and pirates are two readings, not one", () => {
     const g = newGame(newPlayer({ name: "V", skills: defaultSkills() }), 42);
     const site = SITE_BY_ID["leo"];
     const alone = policeLevel({ ...g, factions: [] }, site);
-    const patrolled = policeLevel({ ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }] }, site);
+    const patrolled = policeLevel({ ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", system: "earth", standing: 5 }] }, site);
     expect(patrolled).toBeGreaterThan(alone);
   });
 
@@ -157,7 +159,7 @@ describe("police and pirates are two readings, not one", () => {
     // for a legal hold and the worst for a banned one, and one netted danger
     // word could not say both.
     const g = newGame(newPlayer({ name: "V", skills: defaultSkills() }), 42);
-    const patrolled = { ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }] };
+    const patrolled = { ...g, factions: [{ factionId: "sol-patrol", siteId: "leo", system: "earth", standing: 5 }] };
     const info = systemInfo(patrolled, "leo");
     expect(info.pirateWord).toBe("Few");
     expect(["Abundant", "Moderate"]).toContain(info.policeWord);

@@ -20,7 +20,7 @@
 // thing that makes depots matter in reality.
 // ===========================================================================
 
-import { SITE_BY_ID, SITES, techOf } from "./data/sites.js";
+import { siteOf, techOf } from "./data/sites.js";
 import { SYSTEM_BY_ID } from "./data/bodies.js";
 import { DRIVES } from "./propulsion.js";
 import { propellantFor, massRatio } from "./propulsion.js";
@@ -30,6 +30,7 @@ import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
 import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
 import { spawnFactions, worldBrief, marketMods } from "./factions.js";
+import { spawnSites } from "./worldgen.js";
 import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
 import { ENCOUNTER_BY_ID } from "./data/encounters.js";
 import { dailyWages, payWages } from "./crew.js";
@@ -65,14 +66,21 @@ const INTRA_SYSTEM_DAYS = 6;
 const AEROBRAKE = { earth: 0.85, mars: 0.85, venus: 0.9 };
 
 export function newGame(player, seed = 1) {
-  const factions = spawnFactions(seed);
+  // The world itself is drawn now: the seven core sites plus 9-13 more places
+  // from the atlas census, each with a generated installation and operator
+  // (worldgen.js). Sites live ON the game and travel in the save, so a home
+  // port can never stop existing when the generator changes.
+  const sites = spawnSites(seed);
+  const factions = spawnFactions(seed, sites);
   // The faction draw reaches the shelves: each placed actor bends its home
   // market (glut, demand, crisis, what it produces), and the market carries
   // those modifiers from here on so prices never disagree with the newspaper.
-  const mods = Object.fromEntries(SITES.map((s) => [s.id, marketMods(factions, s.id)]));
+  const mods = Object.fromEntries(sites.map((s) => [s.id, marketMods(factions, s.id)]));
   return {
     player,
-    markets: initialMarkets(mods),
+    sites,
+    surveyed: [],                               // systems swept by a survey lab (atlas reveals)
+    markets: initialMarkets(mods, sites),
     t: START_DATE,
     seed,
     // The fleet's clock model, now the trade game's. `status` is "docked" (at a
@@ -90,7 +98,7 @@ export function newGame(player, seed = 1) {
     encounter: null,
     factions,                                   // the roguelike draw for this run
     visited: [player.at],
-    log: [`${player.name} takes command of the ${player.ship.name} at ${SITE_BY_ID[player.at]?.name}.`],
+    log: [`${player.name} takes command of the ${player.ship.name} at ${sites.find((s) => s.id === player.at)?.name}.`],
     brief: worldBrief(factions),                // "who's out there" for the opening
   };
 }
@@ -99,7 +107,7 @@ export function newGame(player, seed = 1) {
 // What a trip costs
 // ---------------------------------------------------------------------------
 
-const systemOf = (siteId) => SITE_BY_ID[siteId]?.system;
+const systemOf = (game, siteId) => siteOf(game, siteId)?.system;
 
 /**
  * The Δv, flight time and propellant a trip from the player's site to `destId`
@@ -120,7 +128,7 @@ export const dailyCost = (game) => dailyWages(game.player);
 export const tripCost = (game, days) => Math.round(dailyCost(game) * days);
 
 export function travelCost(game, destId) {
-  const from = SITE_BY_ID[game.player.at], to = SITE_BY_ID[destId];
+  const from = siteOf(game, game.player.at), to = siteOf(game, destId);
   if (!from || !to || from.id === to.id) return null;
 
   const drive = DRIVES[game.player.ship.drive] || DRIVES.methalox;
@@ -163,7 +171,7 @@ export function travelCost(game, destId) {
 
 /** Every site you could go to, with its cost, for the destination picker. */
 export function destinations(game) {
-  return SITES.filter((s) => s.id !== game.player.at).map((s) => ({
+  return (game.sites || []).filter((s) => s.id !== game.player.at).map((s) => ({
     site: s,
     cost: travelCost(game, s.id),
   }));
@@ -190,7 +198,7 @@ export function launch(game, destId) {
     return { error: "low-fuel", reason: `Need ${cost.fuelTonnes.toFixed(1)} t of propellant; you have ${game.player.ship.fuelTonnes.toFixed(1)} t. Refuel first.` };
   }
 
-  const from = SITE_BY_ID[game.player.at], to = SITE_BY_ID[destId];
+  const from = siteOf(game, game.player.at), to = siteOf(game, destId);
   const departT = game.t, arriveT = game.t + cost.days * DAY;
   // Freeze the arc at launch so it never shifts under the ship while it flies.
   const a = SYSTEM_BY_ID[from.system], b = SYSTEM_BY_ID[to.system];
@@ -287,9 +295,17 @@ export function advanceTime(game, toT) {
   // In transit and the arrival falls within this step → resolve it exactly at
   // the arrival instant, then hold there (the clock pauses for the dock).
   if (game.status === "transit" && game.leg && toT >= game.leg.arriveT) {
-    const leg = game.leg, to = SITE_BY_ID[leg.to];
+    const leg = game.leg, to = siteOf(game, leg.to);
     const flownDays = (leg.arriveT - game.t) / DAY;
     const p = passTime(game, flownDays);
+    // RESEARCH AS PLAY: a fitted survey lab sweeps the whole system on arrival,
+    // revealing every atlas place there — including the ones nobody occupied
+    // this run. This is the lab module's first real job, and it is the loop the
+    // design wants: you learn the real solar system because learning it pays.
+    const canSurvey = fittedStats(game.player.ship.hull, game.player.ship.modules).canSurvey;
+    const surveyed = canSurvey && !(game.surveyed || []).includes(to.system)
+      ? [...(game.surveyed || []), to.system]
+      : (game.surveyed || []);
     return {
       game: {
         ...game,
@@ -298,6 +314,7 @@ export function advanceTime(game, toT) {
         leg: null,
         rateIdx: 0,                               // pause on arrival
         markets: p.markets,
+        surveyed,
         player: { ...p.player, at: leg.to },
         visited: game.visited.includes(leg.to) ? game.visited : [...game.visited, leg.to],
         log: [
@@ -376,8 +393,8 @@ export const tankFree = (player) => tankMax(player) - player.ship.fuelTonnes;
 
 /** The site's propellant price, or null if it doesn't sell any. */
 export function fuelPrice(game) {
-  const site = SITE_BY_ID[game.player.at];
   const market = game.markets[game.player.at];
+  const site = market?.site;
   return priceAt(market, site, "propellant");
 }
 
@@ -388,8 +405,8 @@ export function fuelPrice(game) {
  * routes into the fuel tank instead of the cargo hold.
  */
 export function refuel(game, tonnes) {
-  const site = SITE_BY_ID[game.player.at];
   const market = game.markets[game.player.at];
+  const site = market?.site;
   if (!site || !market || market.stock.propellant === undefined) {
     return { error: "no-fuel-here", reason: `${site?.name} doesn't sell propellant. Some sites make it from local ice; others don't.` };
   }
@@ -449,7 +466,7 @@ export function sell(game, id, tonnes) {
  * and flying blind is something the player chose. A better-connected port
  * charges more, because it knows more (newsReach).
  */
-export const paperPrice = (game) => 150 + techOf(SITE_BY_ID[game.player.at])?.n * 90;
+export const paperPrice = (game) => 150 + techOf(siteOf(game, game.player.at))?.n * 90;
 
 /** Buy this port's paper. It stays readable until you leave. */
 export function buyPaper(game) {

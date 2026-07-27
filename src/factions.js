@@ -15,20 +15,19 @@
 // ===========================================================================
 
 import { FACTIONS, FACTION_BY_ID, REGIONS, DISPOSITION_START } from "./data/factions.js";
-import { SITES, SITE_BY_ID } from "./data/sites.js";
+import { CORE_SITES } from "./data/sites.js";
 import { seeded } from "./rng.js";
 
-/** Populated sites a faction can actually be placed at. */
-const POPULATED = SITES.map((s) => s.id);
-
 /** Resolve a faction's `homes` (which may include region shorthands) to concrete
- *  site ids that exist. */
-function possibleSites(faction) {
+ *  site ids that exist IN THIS RUN's generated world. Regions name systems, so a
+ *  faction that can live "in the belt" can spawn at whatever belt sites this
+ *  seed actually drew. */
+function possibleSites(faction, sites) {
   const out = new Set();
   for (const h of faction.homes) {
-    if (h === "any") POPULATED.forEach((id) => out.add(id));
-    else if (REGIONS[h]) REGIONS[h].forEach((id) => SITE_BY_ID[id] && out.add(id));
-    else if (SITE_BY_ID[h]) out.add(h);
+    if (h === "any") sites.forEach((s) => out.add(s.id));
+    else if (REGIONS[h]) sites.forEach((s) => REGIONS[h].includes(s.system) && out.add(s.id));
+    else if (sites.some((s) => s.id === h)) out.add(h);
   }
   return [...out];
 }
@@ -45,7 +44,7 @@ function possibleSites(faction) {
  *
  * Returns an array of { faction, siteId, standing } — the placed actors.
  */
-export function spawnFactions(seed, count = 4) {
+export function spawnFactions(seed, sites = CORE_SITES, count = 4) {
   const rng = seeded(seed >>> 0);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   const shuffle = (arr) => {
@@ -71,14 +70,20 @@ export function spawnFactions(seed, count = 4) {
   for (const faction of queue) {
     if (placed.length >= count) break;
     if (usedFactions.has(faction.id)) continue;
-    const sites = shuffle(possibleSites(faction)).filter((id) => !takenSites.has(id));
-    if (!sites.length) continue;                            // no free home; skip this one
-    const siteId = sites[0];
+    const homes = shuffle(possibleSites(faction, sites)).filter((id) => !takenSites.has(id));
+    if (!homes.length) continue;                            // no free home; skip this one
+    const siteId = homes[0];
+    const site = sites.find((s) => s.id === siteId);
     takenSites.add(siteId);
     usedFactions.add(faction.id);
+    // The placed record carries its own geography (system, name). Sites are
+    // per-run now, so anything reading the placement later — danger, news, the
+    // brief — must not have to reach back into a site list to know where it is.
     placed.push({
       factionId: faction.id,
       siteId,
+      system: site.system,
+      siteName: site.name,
       standing: DISPOSITION_START[faction.disposition] ?? 0,
     });
   }
@@ -103,8 +108,7 @@ export function factionAt(placed, siteId) {
 export function regionDanger(placed, systemId) {
   let d = 0.1;   // space is never perfectly safe
   for (const p of placed) {
-    const site = SITE_BY_ID[p.siteId];
-    if (site?.system === systemId) d += FACTION_BY_ID[p.factionId].danger || 0;
+    if (p.system === systemId) d += FACTION_BY_ID[p.factionId].danger || 0;
   }
   return Math.max(0, Math.min(1, d));
 }
@@ -124,9 +128,8 @@ export function regionDanger(placed, systemId) {
 export function pirateThreat(placed, systemId) {
   let t = 0.08;   // opportunists exist everywhere
   for (const p of placed) {
-    const site = SITE_BY_ID[p.siteId];
     const d = FACTION_BY_ID[p.factionId]?.danger || 0;
-    if (site?.system === systemId && d > 0) t += d;
+    if (p.system === systemId && d > 0) t += d;
   }
   return Math.max(0, Math.min(1, t));
 }
@@ -136,9 +139,8 @@ export function pirateThreat(placed, systemId) {
 export function patrolStrength(placed, systemId) {
   let s = 0;
   for (const p of placed) {
-    const site = SITE_BY_ID[p.siteId];
     const d = FACTION_BY_ID[p.factionId]?.danger || 0;
-    if (site?.system === systemId && d < 0) s += -d;
+    if (p.system === systemId && d < 0) s += -d;
   }
   return Math.max(0, Math.min(1, s));
 }
@@ -160,6 +162,6 @@ export function marketMods(placed, siteId) {
 export function worldBrief(placed) {
   return placed.map((p) => {
     const f = FACTION_BY_ID[p.factionId];
-    return `${f.name} at ${SITE_BY_ID[p.siteId]?.name}: ${f.blurb}`;
+    return `${f.name} at ${p.siteName || p.siteId}: ${f.blurb}`;
   });
 }

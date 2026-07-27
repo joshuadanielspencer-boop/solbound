@@ -25,8 +25,9 @@
 
 import { initialMarkets } from "./market.js";
 import { marketMods } from "./factions.js";
+import { CORE_SITES } from "./data/sites.js";
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -158,6 +159,34 @@ const MIGRATIONS = {
       }
     }
     save.version = 7;
+    return save;
+  },
+  // v7 → v8: generated worlds. Sites now live ON the game (`state.sites`) and
+  // each market carries its site snapshot. An old save's world was exactly the
+  // seven core sites, so that is what it keeps — its home port, markets and
+  // faction placements all stay precisely where the player left them, which is
+  // the entire reason site ids derive from places and the core seven are
+  // immortal. Also backfills the geography (`system`, `siteName`) that placed
+  // factions now carry, and the `surveyed` list the atlas screen reads.
+  7: (save) => {
+    const s = save.state;
+    if (s) {
+      if (!Array.isArray(s.sites)) s.sites = JSON.parse(JSON.stringify(CORE_SITES));
+      if (s.markets) {
+        for (const [siteId, m] of Object.entries(s.markets)) {
+          if (!m.site) m.site = s.sites.find((x) => x.id === siteId) || null;
+        }
+      }
+      if (Array.isArray(s.factions)) {
+        for (const p of s.factions) {
+          const site = s.sites.find((x) => x.id === p.siteId);
+          if (p.system === undefined) p.system = site?.system || null;
+          if (p.siteName === undefined) p.siteName = site?.name || p.siteId;
+        }
+      }
+      if (!Array.isArray(s.surveyed)) s.surveyed = [];
+    }
+    save.version = 8;
     return save;
   },
 };

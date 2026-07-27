@@ -41,7 +41,7 @@ import {
   ENCOUNTERS, ENCOUNTER_BY_ID, ACTIONS, KIND_BIAS_BY_ARCHETYPE,
   SALVAGE_FINDS, worsenRecord, recordIndex,
 } from "./data/encounters.js";
-import { SITE_BY_ID, govOf, controlsCommodity, bansCommodity } from "./data/sites.js";
+import { siteOf, govOf, controlsCommodity, bansCommodity } from "./data/sites.js";
 import { COMMODITY_BY_ID, CONTROLS, CONTRABAND } from "./data/commodities.js";
 import { FACTION_BY_ID } from "./data/factions.js";
 import { factionAt, regionDanger, pirateThreat, patrolStrength } from "./factions.js";
@@ -138,8 +138,8 @@ export function pickEncounter(rng, { biasKey = "none", danger = 0, law = 0.5, re
 /** Who you're dealing with out here. Hostile encounters belong to whoever makes
  *  the region dangerous; everything else to whoever holds the port ahead. */
 function counterparty(game, leg, kind) {
-  const to = SITE_BY_ID[leg.to], from = SITE_BY_ID[leg.from];
-  const inSystem = (sys) => game.factions.filter((p) => SITE_BY_ID[p.siteId]?.system === sys);
+  const to = siteOf(game, leg.to), from = siteOf(game, leg.from);
+  const inSystem = (sys) => game.factions.filter((p) => p.system === sys);
   const near = [...inSystem(to?.system), ...inSystem(from?.system)];
   if (kind === "hostile") {
     const worst = near
@@ -164,7 +164,7 @@ function counterparty(game, leg, kind) {
  * instead. That lets the hazard rate be generous without being annoying.
  */
 export function rollLegEvent(game, leg, cursor) {
-  const to = SITE_BY_ID[leg.to], from = SITE_BY_ID[leg.from];
+  const to = siteOf(game, leg.to), from = siteOf(game, leg.from);
   if (!to || !from) return null;
   const rng = legRng(game.seed, cursor, 0);
 
@@ -880,7 +880,7 @@ export function applyOutcome(game, outcome) {
     // decided by a purchase the player made or skipped hours earlier, which is
     // the only kind of death a trading game can afford.
     if (p.ship.escapePod) {
-      const port = SITE_BY_ID[game.leg?.to] || SITE_BY_ID[p.at];
+      const port = siteOf(game, game.leg?.to) || siteOf(game, p.at);
       const stats0 = fittedStats(STARTER_HULL, []);
       next.player = {
         ...player,
@@ -927,7 +927,7 @@ export function encounterView(game) {
   if (!pending) return null;
   const enc = ENCOUNTER_BY_ID[pending.encounterId];
   if (!enc) return null;
-  const site = SITE_BY_ID[game.leg?.to] || SITE_BY_ID[game.player.at];
+  const site = siteOf(game, game.leg?.to) || siteOf(game, game.player.at);
   const gov = govOf(site);
   const faction = pending.factionId
     ? { ...game.factions.find((f) => f.factionId === pending.factionId), faction: FACTION_BY_ID[pending.factionId] }

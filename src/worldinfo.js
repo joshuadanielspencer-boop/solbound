@@ -16,8 +16,9 @@
 //                   no flicker, reproducible from a save.
 // ===========================================================================
 
-import { SITES, SITE_BY_ID, techOf, govOf } from "./data/sites.js";
+import { siteOf, techOf, govOf } from "./data/sites.js";
 import { factionAt, regionDanger, pirateThreat, patrolStrength } from "./factions.js";
+import { occluded } from "./intel.js";
 import { FACTION_BY_ID } from "./data/factions.js";
 import { COMMODITY_BY_ID } from "./data/commodities.js";
 import { nominalStock } from "./market.js";
@@ -63,7 +64,7 @@ export const policeLevel = (game, site) =>
  * data, the government, and this run's faction placement.
  */
 export function systemInfo(game, siteId) {
-  const site = SITE_BY_ID[siteId];
+  const site = siteOf(game, siteId);
   if (!site) return null;
   const tech = techOf(site);
   const gov = govOf(site);
@@ -127,7 +128,7 @@ export function newsReach(site) {
  * everywhere (newsReach).
  */
 export function generateNews(game) {
-  const here = SITE_BY_ID[game.player.at];
+  const here = siteOf(game, game.player.at);
   const reach = newsReach(here);
   const gov = govOf(here);
   const items = [];
@@ -135,9 +136,10 @@ export function generateNews(game) {
   // --- faction headlines -------------------------------------------------
   for (const placed of game.factions) {
     const f = FACTION_BY_ID[placed.factionId];
-    const site = SITE_BY_ID[placed.siteId];
+    const site = siteOf(game, placed.siteId);
     if (!site) continue;
     if (!reach.far && site.system !== here.system) continue;   // out of earshot
+    if (occluded(game, site.id)) continue;                     // behind the Sun — no news gets out
 
     let headline = null, kind = "faction";
     if (f.market?.crisis) {
@@ -161,8 +163,9 @@ export function generateNews(game) {
 
   // --- market watch: the sharpest shortages of valuable goods ------------
   const watch = [];
-  for (const site of SITES) {
+  for (const site of game.sites || []) {
     if (!reach.far && site.system !== here.system) continue;
+    if (occluded(game, site.id)) continue;                     // behind the Sun
     const m = game.markets[site.id];
     if (!m) continue;
     for (const [id, stock] of Object.entries(m.stock)) {
@@ -179,7 +182,7 @@ export function generateNews(game) {
   }
   watch.sort((a, b) => b.severity - a.severity);
   for (const w of watch.slice(0, 3)) {
-    const site = SITE_BY_ID[w.siteId], c = COMMODITY_BY_ID[w.id];
+    const site = siteOf(game, w.siteId), c = COMMODITY_BY_ID[w.id];
     items.push({
       kind: "market",
       headline: `${c.name} runs short at ${site.name}; buyers are paying well.`,

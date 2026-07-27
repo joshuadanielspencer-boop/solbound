@@ -19,7 +19,6 @@
 import { HULL_BY_ID, STARTER_HULL, fittedStats } from "./data/hulls.js";
 import { COMMODITY_BY_ID } from "./data/commodities.js";
 import { priceAt, buy as marketBuy, sell as marketSell } from "./market.js";
-import { SITE_BY_ID } from "./data/sites.js";
 import { effectiveSkills } from "./crew.js";
 
 // Starting capital is deliberately not "pocket change." SOLBOUND's dependency
@@ -141,8 +140,8 @@ export const sellPrice = (player, market, site, id) => {
  * plain sentence rather than a silent no-op.
  */
 export function buyGoods(player, markets, id, tonnes) {
-  const site = SITE_BY_ID[player.at];
   const market = markets[player.at];
+  const site = market?.site;
   if (!site || !market || market.stock[id] === undefined) return { error: "not-sold-here" };
 
   const unit = buyPrice(player, market, site, id);
@@ -180,8 +179,8 @@ export function buyGoods(player, markets, id, tonnes) {
 
 /** Sell `tonnes` from the hold at the current site. */
 export function sellGoods(player, markets, id, tonnes) {
-  const site = SITE_BY_ID[player.at];
   const market = markets[player.at];
+  const site = market?.site;
   if (!site || !market) return { error: "no-market" };
 
   const have = player.cargo[id] || 0;
@@ -214,8 +213,8 @@ export function sellGoods(player, markets, id, tonnes) {
 
 /** Net worth: credits plus the resale value of the hold at the current site. */
 export function netWorth(player, markets) {
-  const site = SITE_BY_ID[player.at];
   const market = markets?.[player.at];
+  const site = market?.site;
   let hold = 0;
   for (const [id, qty] of Object.entries(player.cargo)) {
     const p = market ? sellPrice(player, market, site, id) : COMMODITY_BY_ID[id]?.valuePerTonne || 0;

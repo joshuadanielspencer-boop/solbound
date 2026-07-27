@@ -23,7 +23,7 @@
 // ===========================================================================
 
 import { COMMODITIES, COMMODITY_BY_ID } from "./data/commodities.js";
-import { SITES, bannedAt } from "./data/sites.js";
+import { CORE_SITES, bannedAt } from "./data/sites.js";
 
 /**
  * Does this site's industry MAKE this good, by virtue of its tier?
@@ -128,9 +128,9 @@ const START_STOCK_LIFT = 0.65 / 0.55;
  * everything that reads a price would otherwise need the faction list threaded
  * through it. A market carries its own world.
  */
-export function initialMarkets(modsBySite = {}) {
+export function initialMarkets(modsBySite = {}, sites = CORE_SITES) {
   const markets = {};
-  for (const site of SITES) {
+  for (const site of sites) {
     const mods = modsBySite[site.id] || {};
     const stock = {};
     for (const c of COMMODITIES) {
@@ -161,7 +161,10 @@ export function initialMarkets(modsBySite = {}) {
       const ratio = stockRatio(site, c, mods);
       stock[c.id] = (extracts || makes) ? nominal * ratio : nominal * ratio * START_STOCK_LIFT;
     }
-    markets[site.id] = { siteId: site.id, stock, mods };
+    // The market carries a snapshot of its own site. Sites are generated per
+    // run now, so nothing downstream can reach a static list — and a site
+    // definition never changes mid-run, so the snapshot can't go stale.
+    markets[site.id] = { siteId: site.id, stock, mods, site };
   }
   return markets;
 }
@@ -289,9 +292,9 @@ function stockRatio(site, c, mods = {}) {
 export function advanceMarkets(markets, days) {
   const frac = 1 - Math.pow(0.5, days / REVERSION_HALFLIFE);
   const out = {};
-  for (const site of SITES) {
-    const m = markets[site.id];
-    if (!m) continue;
+  for (const m of Object.values(markets)) {
+    const site = m.site;
+    if (!site) { out[m.siteId] = m; continue; }
     const stock = { ...m.stock };
     for (const id of Object.keys(stock)) {
       // The market drifts toward the equilibrium ITS OWN WORLD sets, so a crisis
@@ -316,8 +319,8 @@ export function advanceMarkets(markets, days) {
  * slightly too much, which would be a nasty surprise rather than a decision.
  */
 export function buy(markets, siteId, commodityId, tonnes) {
-  const site = SITES.find((s) => s.id === siteId);
   const m = markets[siteId];
+  const site = m?.site;
   if (!site || !m || m.stock[commodityId] === undefined) return null;
 
   const available = m.stock[commodityId];
@@ -335,8 +338,8 @@ export function buy(markets, siteId, commodityId, tonnes) {
 
 /** Sell into a market. Adds to its stock, which lowers what it will pay next. */
 export function sell(markets, siteId, commodityId, tonnes) {
-  const site = SITES.find((s) => s.id === siteId);
   const m = markets[siteId];
+  const site = m?.site;
   if (!site || !m) return null;
 
   // A site will buy anything, even something it neither makes nor consumes —
@@ -368,7 +371,7 @@ export function sell(markets, siteId, commodityId, tonnes) {
  * learns ISRU from arithmetic rather than from a tooltip.
  */
 export function tradeOpportunities(markets, fromId, toId, shippingCostPerTonne) {
-  const from = SITES.find((s) => s.id === fromId), to = SITES.find((s) => s.id === toId);
+  const from = markets[fromId]?.site, to = markets[toId]?.site;
   if (!from || !to) return [];
   const mf = markets[fromId], mt = markets[toId];
   if (!mf || !mt) return [];

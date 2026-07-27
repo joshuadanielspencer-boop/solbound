@@ -15,7 +15,7 @@ import {
   HULLS, HULL_BY_ID, MODULE_BY_ID, MODULES, fittedStats, slotUsage,
   HULL_RESALE, MODULE_RESALE, ESCAPE_POD, SLOT_KINDS,
 } from "./data/hulls.js";
-import { SITE_BY_ID, techOf } from "./data/sites.js";
+import { siteOf, techOf } from "./data/sites.js";
 import { cargoUsed } from "./player.js";
 import { berthsFor } from "./data/crew.js";
 
@@ -48,7 +48,7 @@ export function buyEscapePod(game) {
         credits: game.player.credits - ESCAPE_POD.price,
         ship: { ...ship, escapePod: true },
       },
-      log: [...(game.log || []), `Escape pod fitted at ${SITE_BY_ID[game.player.at]?.name}.`],
+      log: [...(game.log || []), `Escape pod fitted at ${siteOf(game, game.player.at)?.name}.`],
     },
     spent: ESCAPE_POD.price,
   };
@@ -65,7 +65,7 @@ export function buyEscapePod(game) {
  * get money back for downsizing, just like the original.
  */
 export function shipsForSale(game, siteId) {
-  const site = SITE_BY_ID[siteId];
+  const site = siteOf(game, siteId);
   const tech = techOf(site).n;
   const trade = tradeInValue(game.player.ship);
   return HULLS.filter((h) => tech >= (h.minTech || 1)).map((h) => {
@@ -90,7 +90,7 @@ export function shipsForSale(game, siteId) {
  * pristine hull. Your cargo carries over — but only if it fits.
  */
 export function buyShip(game, siteId, hullId) {
-  const site = SITE_BY_ID[siteId];
+  const site = siteOf(game, siteId);
   const h = HULL_BY_ID[hullId];
   if (!h) return { error: "no-such-ship" };
   if (hullId === game.player.ship.hull) return { error: "already-own", reason: "You're flying it." };

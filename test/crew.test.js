@@ -30,6 +30,9 @@ const game = (over = {}) => {
   const g = newGame(newPlayer({ name: "Vega", skills: defaultSkills() }), 42);
   return { ...g, ...over, player: { ...g.player, ...(over.player || {}) } };
 };
+// crewForHire takes the SITE OBJECT now (worlds are generated per run); the
+// tests address ports by id, so resolve against the game's own world.
+const at = (g, id) => g.sites.find((s) => s.id === id);
 /** A game in a hull with berths, and money to fill them. */
 const bigShip = (credits = 5_000_000) => {
   const g = { ...game(), player: { ...game().player, at: "leo", credits } };
@@ -39,17 +42,17 @@ const bigShip = (credits = 5_000_000) => {
 describe("who is in the bar", () => {
   it("is the same list on the same day, however many times you look", () => {
     const g = game();
-    const a = crewForHire(g.seed, "leo", g.t).map((c) => c.id);
-    const b = crewForHire(g.seed, "leo", g.t).map((c) => c.id);
+    const a = crewForHire(g.seed, at(g, "leo"), g.t).map((c) => c.id);
+    const b = crewForHire(g.seed, at(g, "leo"), g.t).map((c) => c.id);
     expect(a).toEqual(b);
   });
 
   it("differs by port and by season — but not every time you blink", () => {
     const g = game();
-    const leo = crewForHire(g.seed, "leo", g.t).map((c) => c.id);
-    const ceres = crewForHire(g.seed, "ceres-port", g.t).map((c) => c.id);
-    const later = crewForHire(g.seed, "leo", g.t + 200 * 86400000).map((c) => c.id);
-    const tomorrow = crewForHire(g.seed, "leo", g.t + 86400000).map((c) => c.id);
+    const leo = crewForHire(g.seed, at(g, "leo"), g.t).map((c) => c.id);
+    const ceres = crewForHire(g.seed, at(g, "ceres-port"), g.t).map((c) => c.id);
+    const later = crewForHire(g.seed, at(g, "leo"), g.t + 200 * 86400000).map((c) => c.id);
+    const tomorrow = crewForHire(g.seed, at(g, "leo"), g.t + 86400000).map((c) => c.id);
     expect(leo).not.toEqual(ceres);
     expect(leo).not.toEqual(later);
     expect(leo).toEqual(tomorrow);      // "come back when you can afford them" is a real plan
@@ -57,8 +60,8 @@ describe("who is in the bar", () => {
 
   it("a developed port offers more people, and better ones", () => {
     const g = game();
-    const core = crewForHire(g.seed, "leo", g.t);              // tech 7
-    const frontier = crewForHire(g.seed, "callisto-station", g.t);  // tech 2
+    const core = crewForHire(g.seed, at(g, "leo"), g.t);              // tech 7
+    const frontier = crewForHire(g.seed, at(g, "callisto-station"), g.t);  // tech 2
     expect(core.length).toBeGreaterThan(frontier.length);
     expect(Math.max(...core.map((c) => c.rating)))
       .toBeGreaterThan(Math.max(...frontier.map((c) => c.rating)));
@@ -113,12 +116,12 @@ describe("berths, and who fits in them", () => {
     const g = game();
     expect(berthsFor(HULL_BY_ID.courier)).toBe(0);
     expect(berthsFree(g.player)).toBe(0);
-    expect(hireCrew(g, crewForHire(g.seed, g.player.at, g.t)[0].id).error).toBe("no-berth");
+    expect(hireCrew(g, crewForHire(g.seed, at(g, g.player.at), g.t)[0].id).error).toBe("no-berth");
   });
 
   it("a bigger hull can sign people on, up to its berths", () => {
     let g = bigShip();
-    const offered = crewForHire(g.seed, "leo", g.t);
+    const offered = crewForHire(g.seed, at(g, "leo"), g.t);
     expect(offered.length).toBeGreaterThan(0);
     const r = hireCrew(g, offered[0].id);
     expect(r.error).toBeUndefined();
@@ -128,7 +131,7 @@ describe("berths, and who fits in them", () => {
 
   it("won't hire someone who isn't at this port, or twice", () => {
     const g = bigShip();
-    const here = crewForHire(g.seed, "leo", g.t).map((c) => c.id);
+    const here = crewForHire(g.seed, at(g, "leo"), g.t).map((c) => c.id);
     const elsewhere = Object.keys(CREW_BY_ID).find((id) => !here.includes(id));
     expect(hireCrew(g, elsewhere).error).toBe("not-here");
     const g2 = hireCrew(g, here[0]).game;
@@ -137,7 +140,7 @@ describe("berths, and who fits in them", () => {
 
   it("paying someone off frees the berth and stops the wage", () => {
     let g = bigShip();
-    const id = crewForHire(g.seed, "leo", g.t)[0].id;
+    const id = crewForHire(g.seed, at(g, "leo"), g.t)[0].id;
     g = hireCrew(g, id).game;
     const wage = dailyWages(g.player);
     g = dismissCrew(g, id).game;
@@ -149,7 +152,7 @@ describe("berths, and who fits in them", () => {
 describe("wages make the calendar cost something", () => {
   it("a crewed ship pays every day it is under way", () => {
     let g = bigShip();
-    g = hireCrew(g, crewForHire(g.seed, "leo", g.t)[0].id).game;
+    g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     const before = g.player.credits;
     const r = travel(g, "shackleton");               // ~6 days
     expect(r.game.player.credits).toBeLessThan(before);
@@ -157,7 +160,7 @@ describe("wages make the calendar cost something", () => {
 
   it("waiting in port is not free either", () => {
     let g = bigShip();
-    g = hireCrew(g, crewForHire(g.seed, "leo", g.t)[0].id).game;
+    g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     const before = g.player.credits;
     expect(wait(g, 100).player.credits).toBeLessThan(before);
   });
@@ -173,7 +176,7 @@ describe("wages make the calendar cost something", () => {
     // rounding happened per sliver, playing at speed would cost a different
     // amount from skipping — the clock rate would be an economic choice.
     let g = bigShip();
-    g = hireCrew(g, crewForHire(g.seed, "leo", g.t)[0].id).game;
+    g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     g = launch(g, "jezero-station").game;
     const oneJump = advanceTime(g, g.leg.arriveT).game;
     let stepped = g;
@@ -196,7 +199,7 @@ describe("wages make the calendar cost something", () => {
 
   it("tripCost quotes what a crossing will cost in wages before you commit", () => {
     let g = bigShip();
-    g = hireCrew(g, crewForHire(g.seed, "leo", g.t)[0].id).game;
+    g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     expect(tripCost(g, 259)).toBe(Math.round(dailyWages(g.player) * 259));
     expect(tripCost(g, 259)).toBeGreaterThan(0);
   });
@@ -214,7 +217,7 @@ describe("the escape pod turns a fatal roll into a survivable one", () => {
 
   it("with a pod, you live — and lose the ship, the hold and the crew", () => {
     let g = bigShip();
-    g = hireCrew(g, crewForHire(g.seed, "leo", g.t)[0].id).game;
+    g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     g = { ...g, player: { ...g.player, cargo: { machinery: 20 }, ship: { ...g.player.ship, escapePod: true } } };
     g = launch(g, "shackleton").game;                 // a loaded freighter's honest range
     const after = applyOutcome(g, { headline: "x", label: "y", detail: "z", effects: fatal });

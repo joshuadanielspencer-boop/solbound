@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { spawnFactions, factionAt, regionDanger, marketMods, worldBrief } from "../src/factions.js";
 import { FACTIONS, FACTION_BY_ID, REGIONS } from "../src/data/factions.js";
-import { SITE_BY_ID, SITES } from "../src/data/sites.js";
+import { SITE_BY_ID, SITES, CORE_SITES } from "../src/data/sites.js";
 import { initialMarkets, priceAt, advanceMarkets } from "../src/market.js";
 import { newGame } from "../src/tradergame.js";
 import { newPlayer } from "../src/player.js";
@@ -19,7 +19,11 @@ describe("the pool is well-formed", () => {
     // A faction whose homes don't resolve to a real site could never spawn —
     // dead content that quietly shrinks the draw.
     for (const f of FACTIONS) {
-      const homes = f.homes.flatMap((h) => h === "any" ? ["leo"] : REGIONS[h] || [h]);
+      // REGIONS name SYSTEMS now, resolved against the run's site list.
+      const homes = f.homes.flatMap((h) =>
+        h === "any" ? ["leo"]
+          : REGIONS[h] ? CORE_SITES.filter((s) => REGIONS[h].includes(s.system)).map((s) => s.id)
+            : [h]);
       const real = homes.filter((id) => SITE_BY_ID[id]);
       expect(real.length, `${f.id} has no real home`).toBeGreaterThan(0);
     }
@@ -39,7 +43,7 @@ describe("spawning is reproducible", () => {
   it("same seed → same run, every time", () => {
     // The whole save/load and shareable-seed story rests on this.
     expect(spawnFactions(12345)).toEqual(spawnFactions(12345));
-    expect(spawnFactions(999, 5)).toEqual(spawnFactions(999, 5));
+    expect(spawnFactions(999, CORE_SITES, 5)).toEqual(spawnFactions(999, CORE_SITES, 5));
   });
 
   it("different seeds → different runs", () => {
@@ -51,12 +55,12 @@ describe("spawning is reproducible", () => {
 
 describe("a spawned world is coherent", () => {
   it("places the requested number of factions", () => {
-    for (const n of [3, 4, 5]) expect(spawnFactions(42, n)).toHaveLength(n);
+    for (const n of [3, 4, 5]) expect(spawnFactions(42, CORE_SITES, n)).toHaveLength(n);
   });
 
   it("never puts two factions on the same site", () => {
     for (let seed = 0; seed < 40; seed++) {
-      const placed = spawnFactions(seed, 5);
+      const placed = spawnFactions(seed, CORE_SITES, 5);
       const sites = placed.map((p) => p.siteId);
       expect(new Set(sites).size, `seed ${seed} double-booked a site`).toBe(sites.length);
     }
@@ -64,9 +68,13 @@ describe("a spawned world is coherent", () => {
 
   it("only places factions at their own possible homes", () => {
     for (let seed = 0; seed < 30; seed++) {
-      for (const p of spawnFactions(seed, 5)) {
+      for (const p of spawnFactions(seed, CORE_SITES, 5)) {
         const f = FACTION_BY_ID[p.factionId];
-        const homes = new Set(f.homes.flatMap((h) => h === "any" ? Object.keys(SITE_BY_ID) : REGIONS[h] || [h]));
+        // Regions resolve to systems now; a home is any site in that system.
+        const homes = new Set(f.homes.flatMap((h) =>
+          h === "any" ? Object.keys(SITE_BY_ID)
+            : REGIONS[h] ? CORE_SITES.filter((s) => REGIONS[h].includes(s.system)).map((s) => s.id)
+              : [h]));
         expect(homes.has(p.siteId), `${f.id} spawned at ${p.siteId}, not a home`).toBe(true);
       }
     }
@@ -78,7 +86,7 @@ describe("a spawned world is coherent", () => {
     // pirates or all merchants.
     let mixed = 0;
     for (let seed = 0; seed < 20; seed++) {
-      const arch = new Set(spawnFactions(seed, 4).map((p) => FACTION_BY_ID[p.factionId].archetype));
+      const arch = new Set(spawnFactions(seed, CORE_SITES, 4).map((p) => FACTION_BY_ID[p.factionId].archetype));
       if (arch.size >= 3) mixed++;
     }
     expect(mixed).toBeGreaterThan(14);   // the strong majority of runs are varied
@@ -87,7 +95,7 @@ describe("a spawned world is coherent", () => {
 
 describe("the placed world reads back correctly", () => {
   it("factionAt finds who controls a site, and nobody where none is", () => {
-    const placed = spawnFactions(7, 4);
+    const placed = spawnFactions(7, CORE_SITES, 4);
     const occupied = placed[0].siteId;
     expect(factionAt(placed, occupied).factionId).toBe(placed[0].factionId);
     const empty = Object.keys(SITE_BY_ID).find((id) => !placed.some((p) => p.siteId === id));
@@ -96,15 +104,15 @@ describe("the placed world reads back correctly", () => {
 
   it("a pirate region is more dangerous than a patrolled one", () => {
     // Construct the two extremes by hand so the test doesn't depend on the draw.
-    const pirates = [{ factionId: "black-sun", siteId: "ceres-port", standing: -30 }];
-    const patrol = [{ factionId: "sol-patrol", siteId: "leo", standing: 5 }];
+    const pirates = [{ factionId: "black-sun", siteId: "ceres-port", system: "belt", standing: -30 }];
+    const patrol = [{ factionId: "sol-patrol", siteId: "leo", system: "earth", standing: 5 }];
     expect(regionDanger(pirates, "belt")).toBeGreaterThan(regionDanger(patrol, "earth"));
     // And a lawman actually makes his region safer than empty space.
     expect(regionDanger(patrol, "earth")).toBeLessThan(0.1 + 1e-9);
   });
 
   it("danger stays within bounds however many actors pile into a region", () => {
-    const many = FACTIONS.slice(0, 6).map((f, i) => ({ factionId: f.id, siteId: `x${i}`, standing: 0 }));
+    const many = FACTIONS.slice(0, 6).map((f, i) => ({ factionId: f.id, siteId: `x${i}`, system: "belt", standing: 0 }));
     // (siteIds are fake here; regionDanger only reads faction danger by system,
     //  so this just checks the clamp holds under nonsense input.)
     const d = regionDanger(many, "belt");
@@ -113,14 +121,14 @@ describe("the placed world reads back correctly", () => {
   });
 
   it("market modifiers come from the controlling faction", () => {
-    const placed = [{ factionId: "helios-fuels", siteId: "phobos-depot", standing: 15 }];
+    const placed = [{ factionId: "helios-fuels", siteId: "phobos-depot", system: "mars", standing: 15 }];
     const mods = marketMods(placed, "phobos-depot");
     expect(mods.glut).toContain("propellant");   // Helios floods fuel where it sits
     expect(marketMods(placed, "leo")).toEqual({}); // and does nothing where it isn't
   });
 
   it("the opening brief names every actor and where it is", () => {
-    const placed = spawnFactions(3, 4);
+    const placed = spawnFactions(3, CORE_SITES, 4);
     const brief = worldBrief(placed);
     expect(brief).toHaveLength(4);
     for (const p of placed) {
@@ -149,14 +157,14 @@ describe("the faction draw reaches the shelves", () => {
   it("a crisis makes a colony pay through the nose, geography be damned", () => {
     // Jezero GROWS food. A failed life-support chain doesn't care.
     const calm = gameWith([]);
-    const starving = gameWith([{ factionId: "shortage", siteId: "jezero-station", standing: 15 }]);
+    const starving = gameWith([{ factionId: "shortage", siteId: "jezero-station", system: "mars", standing: 15 }]);
     expect(priceOf(starving, "jezero-station", "food"))
       .toBeGreaterThan(priceOf(calm, "jezero-station", "food") * 2);
   });
 
   it("a glut makes its home the cheap place to fill up", () => {
     const calm = gameWith([]);
-    const depot = gameWith([{ factionId: "helios-fuels", siteId: "phobos-depot", standing: 15 }]);
+    const depot = gameWith([{ factionId: "helios-fuels", siteId: "phobos-depot", system: "mars", standing: 15 }]);
     expect(priceOf(depot, "phobos-depot", "propellant"))
       .toBeLessThan(priceOf(calm, "phobos-depot", "propellant"));
   });
@@ -166,7 +174,7 @@ describe("the faction draw reaches the shelves", () => {
     // site already produced the good, so The First Martians could "want food"
     // on a world that grows it and move no number at all.
     const calm = gameWith([]);
-    const proud = gameWith([{ factionId: "first-martians", siteId: "jezero-station", standing: -5 }]);
+    const proud = gameWith([{ factionId: "first-martians", siteId: "jezero-station", system: "mars", standing: -5 }]);
     expect(priceOf(proud, "jezero-station", "food"))
       .toBeGreaterThan(priceOf(calm, "jezero-station", "food"));
   });
@@ -187,7 +195,7 @@ describe("the faction draw reaches the shelves", () => {
     // Supplying it should ease the price for a season and then have it starve
     // again — otherwise one delivery permanently solves a standing situation and
     // the reason to fly there evaporates.
-    let g = gameWith([{ factionId: "shortage", siteId: "jezero-station", standing: 15 }]);
+    let g = gameWith([{ factionId: "shortage", siteId: "jezero-station", system: "mars", standing: 15 }]);
     const before = priceOf(g, "jezero-station", "food");
     // Dump a lot of food in.
     g = { ...g, markets: { ...g.markets, "jezero-station": {

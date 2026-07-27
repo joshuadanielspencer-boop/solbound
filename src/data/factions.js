@@ -34,12 +34,15 @@ export const ARCHETYPES = {
   cultural: { name: "Cultural", tint: "#C0576A", note: "Moves reputation, information, and people." },
 };
 
-// Region shorthands the spawner can resolve to a concrete site.
+// Region shorthands the spawner resolves against the run's generated site
+// list. Values are SYSTEM ids, not site ids — worlds are drawn per seed now,
+// so "the belt" means whatever belt sites this run actually has.
 export const REGIONS = {
-  cislunar: ["leo", "shackleton"],
-  mars:     ["jezero-station", "phobos-depot"],
-  belt:     ["ceres-port", "psyche-works"],
-  jupiter:  ["callisto-station"],
+  cislunar: ["earth"],
+  mars:     ["mars"],
+  belt:     ["belt"],
+  jupiter:  ["jupiter"],
+  outer:    ["saturn", "neptune", "pluto"],
   any:      null,   // resolved to "any populated site" at spawn
 };
 

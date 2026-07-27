@@ -22,11 +22,21 @@
 // recorded in `why`, and those reasons are the teaching content.
 // ===========================================================================
 
-export const SITES = [
+import { OPERATORS } from "./operators.js";
+
+// ---------------------------------------------------------------------------
+// THE CORE SEVEN — the fixed spine of every run.
+//
+// These are canonical: hand-written, never re-rolled, present in every world
+// the generator spawns (worldgen.js draws 9–13 MORE sites around them from
+// data/places.js each run). They stay fixed because every save references
+// them, the tutorial geography assumes them, and the tests stand on them.
+// ---------------------------------------------------------------------------
+export const CORE_SITES = [
   // ---- EARTH SYSTEM -----------------------------------------------------
   {
     id: "leo", name: "Gateway Station", body: "earth", system: "earth",
-    kind: "orbital", population: 400, owner: "consortium",
+    kind: "orbital", population: 400, owner: "consortium", installation: "entrepot",
     techLevel: 7,
     why: "Low Earth orbit: the top of the deepest gravity well anyone routinely climbs. "
        + "Everything from Earth passes through here, which is exactly why it is expensive.",
@@ -139,16 +149,21 @@ export const SITES = [
   },
 ];
 
-export const SITE_BY_ID = Object.fromEntries(SITES.map((s) => [s.id, s]));
-export const sitesOnBody = (bodyId) => SITES.filter((s) => s.body === bodyId);
-export const sitesInSystem = (systemId) => SITES.filter((s) => s.system === systemId);
+// Legacy alias: the static seven. Game logic must use game.sites (the run's
+// generated world) via siteOf() — this export exists for tests, migrations,
+// and the generator itself.
+export const SITES = CORE_SITES;
+export const SITE_BY_ID = Object.fromEntries(CORE_SITES.map((s) => [s.id, s]));
 
-export const OWNERS = {
-  consortium:  { name: "Orbital Consortium", note: "The Earth-side partnership that runs the lift." },
-  agency:      { name: "Joint Agency",       note: "Public science and exploration, slow and thorough." },
-  corporate:   { name: "Kestrel Industrial", note: "Extraction and logistics, and no patience at all." },
-  independent: { name: "Independent",        note: "Settled by the people who work there." },
-};
+/**
+ * The run's site for an id — THE lookup every module uses now that worlds are
+ * generated per seed. Sites live on the game (`game.sites`, serialised into
+ * saves so a home port can never stop existing); this helper keeps that one
+ * fact in one place. Falls back to the core seven so half-migrated callers
+ * degrade to the old world instead of crashing.
+ */
+export const siteOf = (game, id) =>
+  (game?.sites || CORE_SITES).find((s) => s.id === id);
 
 /**
  * TECH LEVEL — how developed a port is, 1 (a scratched-out camp) to 7 (Earth's
@@ -169,34 +184,24 @@ export const TECH_LEVELS = [
 ];
 
 /**
- * GOVERNMENT — who makes the rules at a port, keyed by its owner. Sets the
- * tariff (a cut on trade), how hard the law is enforced (`law`, 0..1 — how often
- * its patrols stop you, and how hard they are to talk around), which classes of
- * controlled cargo it polices (`controls`, see CONTROLS in commodities.js), the
- * `duty` it levies on them, and the name of the local paper.
+ * GOVERNMENT — who makes the rules at a port, keyed by its owner.
+ *
+ * This moved to data/operators.js when ports became generated: the operator IS
+ * the government (law, tariff, duty, controls, bans, paper), and the pool grew
+ * from four to twenty-odd so the draw has personalities to hand out. The four
+ * legacy keys are unchanged there, so every old save and the core seven read
+ * exactly as before. GOVERNMENTS stays exported as an alias because half the
+ * codebase and tests address it by this name, and the name is still accurate.
  *
  * LAW AND DUTY ARE THE SAME AXIS SEEN TWICE. A strict public administration
  * inspects often and charges little; a free port barely stops anyone. That's the
  * real trade-off a smuggler weighs, and it falls straight out of these numbers
  * rather than out of a difficulty setting.
  */
-export const GOVERNMENTS = {
-  consortium:  { type: "Corporate charter", tariff: 0.12, law: 0.7, paper: "The Orbital Ledger",
-    controls: ["nuclear"], duty: 0.06, bans: ["fissiles"],
-    note: "Corporate order — trade is free but taxed, and the rules are enforced." },
-  agency:      { type: "Public administration", tariff: 0.05, law: 0.85, paper: "The Agency Bulletin",
-    controls: ["nuclear", "pharma", "dual"], duty: 0.045, bans: ["arms", "fissiles"],
-    note: "Low tariffs, strict oversight, and thorough inspections." },
-  corporate:   { type: "Company town", tariff: 0.15, law: 0.5, paper: "The Kestrel Dispatch",
-    controls: [], duty: 0, bans: [],
-    note: "High margins for the company, light law for everyone else." },
-  independent: { type: "Free port", tariff: 0.03, law: 0.3, paper: "The Free Signal",
-    controls: [], duty: 0, bans: [],
-    note: "Nobody's in charge — cheap to trade, and you watch your own back." },
-};
+export { OPERATORS as GOVERNMENTS } from "./operators.js";
 
 export const techOf = (site) => TECH_LEVELS[site?.techLevel] || TECH_LEVELS[3];
-export const govOf = (site) => GOVERNMENTS[site?.owner] || GOVERNMENTS.independent;
+export const govOf = (site) => OPERATORS[site?.owner] || OPERATORS.independent;
 
 /** Does this government police this commodity? (Its control class is on the
  *  commodity; which classes are policed is on the government.) */

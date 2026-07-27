@@ -20,7 +20,7 @@
 // ===========================================================================
 
 import { CREW, CREW_BY_ID, berthsFor } from "./data/crew.js";
-import { SITE_BY_ID, techOf } from "./data/sites.js";
+import { siteOf, techOf } from "./data/sites.js";
 import { HULL_BY_ID } from "./data/hulls.js";
 import { SKILLS } from "./data/captain.js";
 import { seeded } from "./rng.js";
@@ -36,9 +36,9 @@ export const HIRING_BLOCK_DAYS = 40;
  * tech-level axis that gates hulls, applied to the only other thing you can buy
  * that changes what your ship can do.
  */
-export function crewForHire(seed, siteId, t) {
-  const site = SITE_BY_ID[siteId];
+export function crewForHire(seed, site, t) {
   if (!site) return [];
+  const siteId = site.id;
   const block = Math.floor((t - Date.UTC(2035, 0, 1)) / (HIRING_BLOCK_DAYS * DAY));
   // Hash the three inputs into one stream. Site id goes in character by character
   // so two ports never share a roll.
@@ -109,14 +109,14 @@ export function hireCrew(game, crewId) {
   if (berthsFree(game.player) <= 0) {
     return { error: "no-berth", reason: "No free berth. A bigger hull, or let someone go." };
   }
-  if (!crewForHire(game.seed, game.player.at, game.t).some((x) => x.id === crewId)) {
+  if (!crewForHire(game.seed, siteOf(game, game.player.at), game.t).some((x) => x.id === crewId)) {
     return { error: "not-here", reason: "They're not at this port." };
   }
   return {
     game: {
       ...game,
       player: { ...game.player, crew: [...(game.player.crew || []), crewId] },
-      log: [...(game.log || []), `${c.name} signed on at ${SITE_BY_ID[game.player.at]?.name}.`],
+      log: [...(game.log || []), `${c.name} signed on at ${siteOf(game, game.player.at)?.name}.`],
     },
     hired: c,
   };
@@ -130,7 +130,7 @@ export function dismissCrew(game, crewId) {
     game: {
       ...game,
       player: { ...game.player, crew: game.player.crew.filter((id) => id !== crewId) },
-      log: [...(game.log || []), `${c.name} paid off at ${SITE_BY_ID[game.player.at]?.name}.`],
+      log: [...(game.log || []), `${c.name} paid off at ${siteOf(game, game.player.at)?.name}.`],
     },
     dismissed: c,
   };
