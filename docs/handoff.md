@@ -56,6 +56,11 @@ of this file is the detail that block points at.
 > on every open from the crew commit until 2026-07-27, behind a fully green suite.
 > Open the screens you touch.
 >
+> **`docs/manual.md` is the player-facing manual** — the loop, the first hour, the
+> five screens, the rules that bite, and a quick-reference card. It states real
+> prices and real numbers, so it goes stale the moment you change one. If you
+> change what a player does or what something costs, update it in the same commit.
+>
 > **Balance items awaiting Joshua's playtest** are listed under "Known balance
 > notes" — do NOT blind-tune them. Several design decisions have had NO feedback
 > yet (see "Awaiting feedback" section); surface them when relevant rather than
