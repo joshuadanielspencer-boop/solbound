@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
 import { project, orbitPath, sayLightTime } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
-import { SYSTEMS, SYSTEM_BY_ID } from "../data/bodies.js";
+import { SYSTEMS, SYSTEM_BY_ID, MOONS, BELT_BODIES } from "../data/bodies.js";
 import { siteOf } from "../data/sites.js";
 import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
@@ -43,6 +43,10 @@ import {
 } from "../tradergame.js";
 
 const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
+/** How fast the clock drifts while you are docked, in mission-days per real
+ *  second. Slow enough to read a market under, fast enough that Earth visibly
+ *  moves in ten seconds — a planet covers about a degree a day. */
+const DOCK_RATE = 1;
 const money = (n) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (t) => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44).toFixed(0)} months` : `${(d / 365.25).toFixed(1)} years`;
@@ -53,6 +57,8 @@ export default function Play({ game, setGame, onQuit }) {
   const [dest, setDest] = useState(null);
   const [sel, setSel] = useState(null);
   const [toast, setToast] = useState(null);
+  // Which system the map is inside, or null for the whole solar system.
+  const [zoom, setZoom] = useState(null);
 
   const flash = (text, kind = "ok") => setToast({ text, kind });
   const transit = game.status === "transit";
@@ -62,27 +68,43 @@ export default function Play({ game, setGame, onQuit }) {
   // setInterval, not requestAnimationFrame: rAF is throttled to zero in a hidden
   // tab, which would silently freeze the game whenever the player looked away.
   // dt is measured from the wall clock, so a stalled tab slows the sim rather
-  // than desynchronising it. The clock only runs while in transit.
+  // than desynchronising it.
+  //
+  // TIME NOW RUNS IN PORT TOO, at a slow drift (DOCK_RATE days a second). A
+  // static orrery reads as a diagram; a moving one teaches the synodic period
+  // for free, which is the single most useful thing this map can do. Two things
+  // make that safe rather than punishing:
+  //   • it is one click to pause, and the control is always on screen
+  //   • it ticks at 10 fps in port rather than 30, because every tick re-prices
+  //     the market panel underneath it
+  // What it genuinely costs is WAGES, which accrue per day — so dithering in
+  // port is free with an empty ship and expensive with a crew aboard. That is
+  // the intended pressure, and the pause button is the answer to it.
+  const clockOn = transit ? RATES[game.rateIdx].days > 0 : game.dockClock !== false;
+  const stepDays = transit ? RATES[game.rateIdx].days : DOCK_RATE;
   useEffect(() => {
-    if (!transit || stopped || RATES[game.rateIdx].days === 0) return;
+    if (stopped || !clockOn) return;
     let last = performance.now();
     const id = setInterval(() => {
       const now = performance.now();
-      const dt = Math.min(150, now - last);
+      const dt = Math.min(400, now - last);
       last = now;
       setGame((g) => {
-        if (g.status !== "transit" || g.encounter || g.over) return g;
-        const r = advanceTime(g, g.t + RATES[g.rateIdx].days * (dt / 1000) * DAY);
+        if (g.encounter || g.over) return g;
+        const rate = g.status === "transit" ? RATES[g.rateIdx].days : DOCK_RATE;
+        if (rate <= 0) return g;
+        const r = advanceTime(g, g.t + rate * (dt / 1000) * DAY);
         if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
         if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
         if (r.quit?.length) queueMicrotask(() => flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad"));
         return r.game;
       });
-    }, 33);
+    }, transit ? 33 : 100);
     return () => clearInterval(id);
-  }, [transit, stopped, game.rateIdx]);
+  }, [transit, stopped, clockOn, stepDays]);
 
   const setRate = (i) => setGame((g) => ({ ...g, rateIdx: i }));
+  const toggleDockClock = () => setGame((g) => ({ ...g, dockClock: g.dockClock === false }));
   const skip = () => setGame((g) => {
     if (g.status !== "transit" || g.encounter || g.over) return g;
     const r = advanceTime(g, g.leg.arriveT);
@@ -91,6 +113,14 @@ export default function Play({ game, setGame, onQuit }) {
     if (r.quit?.length) queueMicrotask(() => flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad"));
     return { ...r.game, rateIdx: 0 };
   });
+
+  // Esc backs out of a zoomed system, the same key the old fleet map used.
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e) => { if (e.key === "Escape") setZoom(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom]);
 
   // The encounter: choose, see what it cost, then get back under way.
   const doChoose = (choice) => {
@@ -119,6 +149,9 @@ export default function Play({ game, setGame, onQuit }) {
     const r = launch(game, destId);
     if (r.error) return flash(r.reason || r.error, "bad");
     setGame(r.game); setDest(null); setSel(null);
+    // Back out to the solar system: the leg is a heliocentric arc, and a system
+    // view cannot draw it. Watching the ship cross is the point of launching.
+    setZoom(null);
     flash(`Under way to ${siteOf(game, destId)?.name}. Run the clock.`);
   };
   const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
@@ -170,10 +203,19 @@ export default function Play({ game, setGame, onQuit }) {
 
   return (
     <div style={S.app}>
-      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave} />
+      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave}
+        onToggleDockClock={toggleDockClock} />
       <div style={S.main}>
         <div style={S.stage}>
-          <Orrery positions={positions} orbits={orbits} game={game} dest={dest} />
+          {zoom
+            ? <SystemView game={game} systemId={zoom} dest={dest} onBack={() => setZoom(null)}
+                onPick={(id) => {
+                  // The map picks the trip; the course plotter prices it.
+                  if (id === game.player.at) { setMode("dock"); return; }
+                  setDest(id); setMode("travel");
+                }} />
+            : <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
+                onZoom={(id) => setZoom(id)} />}
         </div>
         <aside style={S.panel} aria-live="polite">
           {game.over ? (
@@ -213,7 +255,7 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, onDownload }) {
+function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
@@ -251,7 +293,18 @@ function Hud({ game, onQuit, setRate, skip, onDownload }) {
           <button onClick={skip} style={S.skipBtn} title="Skip to arrival">⏭</button>
         </div>
       ) : (
-        <button style={S.quit} onClick={onQuit}>Menu</button>
+        <div style={S.clock}>
+          {/* Time drifts in port too. One click stops it, and the button says
+              which state you are in rather than which state it would put you in. */}
+          <button onClick={onToggleDockClock} aria-pressed={game.dockClock !== false}
+            title={game.dockClock !== false
+              ? `Time is drifting at ${DOCK_RATE} day a second. Click to hold it.`
+              : "Time is held. Click to let it drift again."}
+            style={{ ...S.rateBtn, ...(game.dockClock !== false ? S.rateOn : null), minWidth: 92 }}>
+            {game.dockClock !== false ? "▶ drifting" : "❚❚ held"}
+          </button>
+          <button style={S.quit} onClick={onQuit}>Menu</button>
+        </div>
       )}
     </header>
   );
@@ -453,9 +506,16 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
   const p = game.player;
   const site = siteOf(game, p.at);
   const market = game.markets[p.at];
-  // Every commodity, including the ones this port has no market for. What a
-  // place CANNOT get is half of what makes it a place (design.md §5).
-  const rows = listing(market, site, { includeUntraded: true });
+  // THE DEFAULT VIEW IS WHAT YOU CAN DO HERE. The goods a port has no market
+  // for teach something real (design.md §5), but they were the first six rows a
+  // player met and they made the shelves look like a wall of "no". They are
+  // behind a toggle now — present for the curious, absent from the decision.
+  const [showDead, setShowDead] = useState(false);
+  // One listing call, memoised: the clock now re-renders this panel ten times a
+  // second in port, and pricing every commodity twice per frame is waste.
+  const all = useMemo(() => listing(market, site, { includeUntraded: true }), [market, site]);
+  const deadCount = all.length - all.filter((r) => r.traded).length;
+  const rows = showDead ? all : all.filter((r) => r.traded);
   const fp = fuelPrice(game);
   const tank = tankMax(p), tankFreeT = tank - p.ship.fuelTonnes;
   const control = factionAt(game.factions, site.id);
@@ -465,22 +525,11 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
     <div style={{ overflowY: "auto" }}>
       <div style={S.siteName}>{site.name}</div>
       <SystemInfoBlock game={game} siteId={p.at} />
-      {control && rep && (
-        <div style={S.faction}>
-          <div>
-            <b>{control.faction.name}</b> holds this port.
-            {/* Standing where it would change a decision, not only on its own
-                screen — this is whose hall you are standing in right now. */}
-            <span style={{ ...S.repChip, color: rep.tier.tone, borderColor: rep.tier.tone }}>
-              {rep.tier.name} {rep.standing > 0 ? "+" : ""}{rep.standing}
-            </span>
-          </div>
-          <div style={{ marginTop: 4 }}>{control.faction.blurb}</div>
-        </div>
-      )}
-      <div style={S.why}>{site.why}</div>
 
-      <Newspaper game={game} onBuyPaper={onBuyPaper} />
+      {/* WHAT AM I MEANT TO BE DOING. One sentence, and it changes with the
+          state you are actually in — an empty hold at your home port is a
+          different problem from a full hold and no fuel. */}
+      <NextStep game={game} />
 
       <div style={S.fuelBox}>
         <div style={S.fuelHead}>
@@ -496,8 +545,6 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
         <BoilOffLine game={game} />
         <RangeLine game={game} />
       </div>
-
-      <WaitBox game={game} onWait={onWait} />
 
       <div style={S.marketHead}>Market</div>
       <div style={{ padding: "0 12px 16px" }}>
@@ -550,9 +597,83 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
             </div>
           );
         })}
+        {deadCount > 0 && (
+          <button style={S.deadToggle} onClick={() => setShowDead((v) => !v)} aria-expanded={showDead}>
+            {showDead
+              ? "▾ Hide what this port has no market for"
+              : `▸ ${deadCount} more this port has no market for`}
+          </button>
+        )}
       </div>
+
+      {/* EVERYTHING BELOW IS CONTEXT, NOT A DECISION. It sits under the market
+          because the market is the reason you opened this screen. */}
+      <WaitBox game={game} onWait={onWait} />
+      <Newspaper game={game} onBuyPaper={onBuyPaper} />
+
+      <Fold title={`About ${site.name}`}>
+        <div style={{ ...S.small, padding: "0 6px" }}>{site.why}</div>
+        {control && rep && (
+          <div style={{ ...S.faction, margin: "10px 0 0" }}>
+            <div>
+              <b>{control.faction.name}</b> holds this port.
+              {/* Standing where it would change a decision, not only on its own
+                  screen — this is whose hall you are standing in right now. */}
+              <span style={{ ...S.repChip, color: rep.tier.tone, borderColor: rep.tier.tone }}>
+                {rep.tier.name} {rep.standing > 0 ? "+" : ""}{rep.standing}
+              </span>
+            </div>
+            <div style={{ marginTop: 4 }}>{control.faction.blurb}</div>
+          </div>
+        )}
+      </Fold>
     </div>
   );
+}
+
+/** A collapsed section. Prose is worth having and worth being able to put away. */
+function Fold({ title, children, open: initial = false }) {
+  const [open, setOpen] = useState(initial);
+  return (
+    <div style={{ margin: "0 18px 14px" }}>
+      <button style={S.foldHead} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {open ? "▾" : "▸"} {title}
+      </button>
+      {open && <div style={{ padding: "8px 2px 0" }}>{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * WHAT AM I MEANT TO BE DOING? The game never said, and "overwhelming, and not
+ * intuitive what I'm supposed to be doing" is the most useful note this project
+ * has had. One sentence, read off the state the player is actually in — not a
+ * tutorial, not a quest marker, just the next sensible move stated out loud.
+ *
+ * Ordered by urgency: a problem that blocks you first, then the ordinary loop.
+ */
+function NextStep({ game }) {
+  const p = game.player;
+  const held = cargoUsed(p);
+  const range = rangeReport(game);
+  const fp = fuelPrice(game);
+  const lowFuel = p.ship.fuelTonnes < tankMax(p) * 0.25;
+
+  let text;
+  if ((p.ship.hullPct ?? 100) < 50) {
+    text = "Your hull is badly opened up. Repair it in the Yard before the next crossing — a second fight is what kills you.";
+  } else if (range.now === 0 && fp) {
+    text = "You cannot reach anywhere on the propellant aboard. Refuel here first.";
+  } else if (range.now === 0) {
+    text = "You cannot reach anywhere on the propellant aboard, and this port sells none. Check the Course tab for what a full tank would open.";
+  } else if (held > 0) {
+    text = `You are carrying ${held.toFixed(0)} t. Open the Course tab — it estimates what your cargo fetches at each port before you commit to the trip.`;
+  } else if (lowFuel) {
+    text = "The hold is empty and the tank is low. Buy something this port is long on, top up the propellant, and pick a port that is short on it.";
+  } else {
+    text = "The hold is empty. Buy something this port has a surplus of (◆), then find a port that has to import it (○). That gap is the whole trade.";
+  }
+  return <div style={S.nextStep}>{text}</div>;
 }
 
 /**
@@ -1168,7 +1289,9 @@ function SystemInfoBlock({ game, siteId }) {
 // The local newspaper — the "why go far" signal, drawn from factions + markets.
 // ---------------------------------------------------------------------------
 function Newspaper({ game, onBuyPaper }) {
-  const [open, setOpen] = useState(true);
+  // Closed by default. It used to open onto the market screen and push the
+  // shelves below the fold on arrival at every port.
+  const [open, setOpen] = useState(false);
   const news = generateNews(game);
   if (!news.items.length) return null;
   const bought = game.paperAt === game.player.at;
@@ -1271,7 +1394,7 @@ function MarketIntel({ game, toId, shippingPerTonne }) {
 // ---------------------------------------------------------------------------
 // Orrery — with the player ship on it
 // ---------------------------------------------------------------------------
-function Orrery({ positions, orbits, game, dest }) {
+function Orrery({ positions, orbits, game, dest, onZoom }) {
   const opts = { cx: CX, cy: CY, radius: R, trueScale: false };
   const hereSys = siteOf(game, game.player.at)?.system;
   const transit = game.status === "transit";
@@ -1305,18 +1428,29 @@ function Orrery({ positions, orbits, game, dest }) {
       <circle cx={CX} cy={CY} r="90" fill="url(#sun)" /><circle cx={CX} cy={CY} r="11" fill="#F2B441" />
       {arc && <path d={arc} fill="none" stroke="var(--gold)" strokeWidth="2" strokeDasharray="5 6" strokeOpacity={transit ? 0.9 : 0.6} />}
 
+      {/* THE MAP IS A CONTROL NOW, NOT A PICTURE. Space Trader's chart was how
+          you navigated; ours was a diagram you looked at while reading a list.
+          Click (or Enter/Space) a planet to go inside its system. Keyboard
+          reachable because the map must not be mouse-only (project rule 4). */}
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => {
         const pos = positions[s.id]; const { x, y } = project(pos.r, pos.lon, opts);
         const here = s.id === hereSys, isDest = s.id === destSys;
         const r = dot(s.radiusKm, s.id === "pluto" ? 1.3 : 1);
         const held = game.factions?.some((fx) => fx.system === s.id);
+        const ports = (game.sites || []).filter((x) => x.system === s.id).length;
+        const label = `${s.name}${ports ? `, ${ports} port${ports === 1 ? "" : "s"}` : ", no ports"}. Open this system.`;
         return (
-          <g key={s.id}>
+          <g key={s.id} role="button" tabIndex={0} aria-label={label} style={{ cursor: "pointer" }}
+            onClick={() => onZoom(s.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onZoom(s.id); } }}>
+            {/* A generous invisible target — the dots are as small as 4px. */}
+            <circle cx={x} cy={y} r={Math.max(20, r + 12)} fill="transparent" />
             {here && !transit && <circle cx={x} cy={y} r={r + 12} fill="none" stroke="#F2B441" strokeWidth="1.5" strokeDasharray="3 4" />}
             {isDest && <circle cx={x} cy={y} r={r + 9} fill="none" stroke="var(--gold)" strokeWidth="2" />}
             <circle cx={x} cy={y} r={r} fill={s.color} stroke="#070A12" strokeWidth="1.5" />
             <text x={x} y={y - r - 8} style={{ ...S.pin, fill: here || isDest ? "#fff" : "#B9C2D4" }}>
               {s.name}{here && !transit ? " — you" : ""}{held ? " ◆" : ""}
+              {ports > 0 && <tspan style={{ fill: "var(--gold)" }}> ·{ports}</tspan>}
             </text>
           </g>
         );
@@ -1329,6 +1463,115 @@ function Orrery({ positions, orbits, game, dest }) {
         </g>
       )}
     </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SYSTEM VIEW — inside one planet's system: its moons, and this run's ports.
+//
+// The orrery answers "where is everything"; this answers "what is actually
+// HERE", which is the question a player asks when they click a planet. Moon
+// orbital radii and periods are real (data/bodies.js); their PHASES are not yet
+// epoch-anchored, which is flagged there and is why this view never claims a
+// particular moon is at a particular place on a particular date — it shows the
+// spacing and the sizes, which are the true parts.
+//
+// Radii are compressed logarithmically for the same reason the orrery is: drawn
+// to scale, Phobos would be inside the planet dot and Iapetus off the board.
+// ---------------------------------------------------------------------------
+function SystemView({ game, systemId, dest, onPick, onBack }) {
+  const sys = SYSTEM_BY_ID[systemId];
+  const moons = MOONS[systemId] || [];
+  const belt = systemId === "belt" ? BELT_BODIES : [];
+  const sites = (game.sites || []).filter((s) => s.system === systemId);
+  const hereId = game.player.at;
+
+  // One ring per body, log-compressed. Moon rings start well outside PLANET_RING
+  // so a planet's own settlements never sit on top of its moons' orbits. The
+  // belt's members are heliocentric, so they get evenly spaced rings instead —
+  // they do not orbit anything here.
+  const PLANET_RING = 122;
+  const maxA = Math.max(...moons.map((m) => m.aKm), 1);
+  const ringOf = (aKm) => (Math.log(1 + (aKm / maxA) / 0.12) / Math.log(1 + 1 / 0.12)) * 180 + 190;
+  const bodies = belt.length
+    ? belt.map((b, i) => ({ id: b.id, name: b.name, radiusKm: b.radiusKm, ring: 160 + i * 100, note: b.note }))
+    : moons.map((m) => ({ id: m.id, name: m.name, radiusKm: m.radiusKm, ring: ringOf(m.aKm), note: m.note }));
+
+  const angleFor = (i, n) => (-90 + (360 / Math.max(n, 1)) * i) * (Math.PI / 180);
+  const placed = bodies.map((b, i) => {
+    const a = angleFor(i, bodies.length);
+    return { ...b, x: CX + b.ring * Math.cos(a), y: CY + b.ring * Math.sin(a), sites: sites.filter((s) => s.body === b.id) };
+  });
+
+  // Anything whose `body` is the primary itself — a surface settlement, or
+  // something parked in orbit around it — rings the planet at its own radius.
+  // Mars draws four of these, and at any tighter radius they sat on the planet.
+  const atPlanet = sites.filter((s) => !bodies.some((b) => b.id === s.body));
+
+  return (
+    <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img"
+      aria-label={`${sys?.name}: ${bodies.length} charted bodies, ${sites.length} ports.`}>
+      {bodies.map((b) => (
+        <circle key={b.id} cx={CX} cy={CY} r={b.ring} fill="none" stroke="#26324a" strokeOpacity="0.55" />
+      ))}
+      {systemId === "saturn" && (
+        <ellipse cx={CX} cy={CY} rx={78} ry={78} fill="none" stroke="#D8C08A" strokeOpacity="0.3" strokeWidth={26} />
+      )}
+
+      {/* The primary, and anything sitting on or above it */}
+      <g>
+        <circle cx={CX} cy={CY} r={belt.length ? 14 : 40} fill={sys?.color || "#9AA6B8"} stroke="#070A12" strokeWidth="2" />
+        <text x={CX} y={CY + (belt.length ? 30 : 60)} style={{ ...S.pin, fill: "#fff", fontSize: 15 }}>{sys?.name}</text>
+      </g>
+      {atPlanet.map((s, i) => {
+        const a = angleFor(i, atPlanet.length);
+        const x = CX + PLANET_RING * Math.cos(a), y = CY + PLANET_RING * Math.sin(a);
+        return <SitePin key={s.id} site={s} x={x} y={y} here={s.id === hereId} sel={dest === s.id} onPick={onPick} />;
+      })}
+
+      {placed.map((b) => (
+        <g key={b.id}>
+          <circle cx={b.x} cy={b.y} r={Math.max(6, dot(b.radiusKm, 1.6))} fill="#C9CFDC" stroke="#070A12" strokeWidth="1.5" />
+          <text x={b.x} y={b.y - Math.max(6, dot(b.radiusKm, 1.6)) - 9} style={{ ...S.pin, fill: "#B9C2D4" }}>{b.name}</text>
+          {/* Stacked downward, never spread sideways: a body sitting near the
+              right-hand edge would push a 108px-wide pin off the board. */}
+          {b.sites.map((s, i) => (
+            <SitePin key={s.id} site={s} x={b.x} y={b.y + 30 + i * 30}
+              here={s.id === hereId} sel={dest === s.id} onPick={onPick} />
+          ))}
+        </g>
+      ))}
+
+      {sites.length === 0 && (
+        <text x={CX} y={CY + 150} style={{ ...S.pin, fill: "var(--muted)", fontSize: 14 }}>
+          Nobody has built anything here this run.
+        </text>
+      )}
+      <g role="button" tabIndex={0} aria-label="Back to the solar system" style={{ cursor: "pointer" }}
+        onClick={onBack} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onBack(); } }}>
+        <rect x="24" y="24" width="184" height="40" rx="10" fill="var(--panel-2)" stroke="var(--line)" />
+        <text x="116" y="50" style={{ ...S.pin, fill: "#CDD5E4", fontSize: 14 }}>← Solar system (Esc)</text>
+      </g>
+    </svg>
+  );
+}
+
+/** A port on the system map. Clicking one selects it as your destination and
+ *  opens the course plotter — the map picks the trip, the panel prices it. */
+function SitePin({ site, x, y, here, sel, onPick }) {
+  const w = 108, h = 26;
+  return (
+    <g role="button" tabIndex={0} style={{ cursor: "pointer" }}
+      aria-label={`${site.name}${here ? ", where you are docked" : ""}. Plot a course.`}
+      onClick={() => onPick(site.id)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(site.id); } }}>
+      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={7}
+        fill={here ? "rgba(242,180,65,0.18)" : "var(--panel-2)"}
+        stroke={here ? "var(--gold)" : sel ? "var(--gold)" : "var(--line)"} strokeWidth={sel || here ? 2 : 1} />
+      <text x={x} y={y + 4} style={{ ...S.pin, fill: here ? "var(--gold)" : "#CDD5E4", fontSize: 11 }}>
+        {here ? "⚓ " : ""}{site.name.length > 15 ? site.name.slice(0, 14) + "…" : site.name}
+      </text>
+    </g>
   );
 }
 
@@ -1415,6 +1658,11 @@ const S = {
   mrowDead: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", border: "1px solid transparent", borderRadius: 8, opacity: 0.45, color: "var(--muted)", textAlign: "left" },
   notSold: { fontSize: 12, color: "var(--muted)", fontStyle: "italic", whiteSpace: "nowrap" },
   deadHead: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "14px 0 4px", borderTop: "1px solid var(--line)", marginTop: 8 },
+  deadToggle: { width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 10px 2px", cursor: "pointer", color: "var(--muted)", fontSize: 11.5 },
+  foldHead: { width: "100%", textAlign: "left", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 11px", cursor: "pointer", color: "var(--muted)", fontSize: 12.5 },
+  // The one line that answers "what am I supposed to be doing". Deliberately
+  // the brightest non-price thing on the screen.
+  nextStep: { margin: "2px 18px 12px", padding: "10px 12px", background: "rgba(242,180,65,0.08)", border: "1px solid rgba(242,180,65,0.3)", borderRadius: 9, fontSize: 12.5, lineHeight: 1.55, color: "#E8EDF6" },
   held: { color: "var(--gold)", fontSize: 12 },
   crewTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 6px", marginLeft: 4 },
   atlasRow: { margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, fontSize: 13 },

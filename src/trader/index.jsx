@@ -39,6 +39,15 @@ export default function Trader() {
   // launch, a refuel — but NOT on every clock tick (see saveSig). The stamp is
   // Date.now() here at the UI edge, never inside the sim, which stays clock-free
   // so replays are deterministic.
+  //
+  // DEBOUNCED, because the clock now drifts in port as well as in flight. The
+  // signature includes the docked date (so a wait is never silently undone), and
+  // at a day a second that is a fresh signature every second — which without
+  // this would be a ~30 KB localStorage write per second for as long as anyone
+  // left the game open. Two seconds of quiet is the trigger; a real change (a
+  // trade, a launch) is followed by quiet almost immediately, so nothing that
+  // matters waits long, and closing the tab mid-drift costs at most two seconds
+  // of drift.
   const lastSig = useRef(null);
   useEffect(() => {
     if (phase !== "play" || !game) return;
@@ -46,9 +55,12 @@ export default function Trader() {
     // Continue reopen a wreck. The player still sees the ending in this session.
     if (game.over) { clearSave(); setSaveExists(false); return; }
     const sig = saveSig(game);
-    if (sig === lastSig.current) return;      // only a tick happened; skip
-    lastSig.current = sig;
-    if (autosave(game, Date.now())) setSaveExists(true);
+    if (sig === lastSig.current) return;      // only a sub-day tick happened; skip
+    const id = setTimeout(() => {
+      lastSig.current = sig;
+      if (autosave(game, Date.now())) setSaveExists(true);
+    }, 2000);
+    return () => clearTimeout(id);
   }, [game, phase]);
 
   const startNew = () => { clearSave(); setSaveExists(false); setPhase("create"); };
