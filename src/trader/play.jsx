@@ -12,13 +12,14 @@ import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
 import { project, orbitPath, sayLightTime } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
 import { SYSTEMS, SYSTEM_BY_ID } from "../data/bodies.js";
-import { SITE_BY_ID } from "../data/sites.js";
+import { siteOf } from "../data/sites.js";
 import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
 import { factionAt } from "../factions.js";
 import { FACTION_BY_ID } from "../data/factions.js";
 import { runPlan, cargoValueAt } from "../intel.js";
+import { atlasFor, atlasProgress } from "../atlas.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
 import { fittedStats, MODULE_BY_ID, HULL_BY_ID, ESCAPE_POD, SLOT_KINDS, slotUsage } from "../data/hulls.js";
 import { techOf } from "../data/sites.js";
@@ -114,7 +115,7 @@ export default function Play({ game, setGame, onQuit }) {
     const r = launch(game, destId);
     if (r.error) return flash(r.reason || r.error, "bad");
     setGame(r.game); setDest(null); setSel(null);
-    flash(`Under way to ${SITE_BY_ID[destId].name}. Run the clock.`);
+    flash(`Under way to ${siteOf(game, destId)?.name}. Run the clock.`);
   };
   const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
   const doSell = (id, qty) => {
@@ -170,10 +171,12 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "dock" ? S.tabOn : null) }} onClick={() => setMode("dock")}>⚓ Dock</button>
                 <button style={{ ...S.tab, ...(mode === "yard" ? S.tabOn : null) }} onClick={() => setMode("yard")}>🔧 Yard</button>
                 <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
+                <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
               {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} />
                 : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
-                  : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
+                  : mode === "atlas" ? <AtlasPanel game={game} />
+                    : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
             </>
           )}
         </aside>
@@ -194,8 +197,8 @@ const errMsg = (e) => ({
 function Hud({ game, onQuit, setRate, skip, onDownload }) {
   const p = game.player;
   const transit = game.status === "transit";
-  const here = SITE_BY_ID[p.at];
-  const where = transit ? `en route to ${SITE_BY_ID[game.leg.to]?.name}` : `docked at ${here.name}`;
+  const here = siteOf(game, p.at);
+  const where = transit ? `en route to ${siteOf(game, game.leg.to)?.name}` : `docked at ${here?.name}`;
   return (
     <header style={S.hud}>
       <button onClick={onDownload} style={S.homeBtn} title="Download this game as a file"
@@ -246,7 +249,7 @@ const Hstat = ({ label, value, tone }) => (
 // ---------------------------------------------------------------------------
 function TransitPanel({ game }) {
   const leg = game.leg;
-  const from = SITE_BY_ID[leg.from], to = SITE_BY_ID[leg.to];
+  const from = siteOf(game, leg.from), to = siteOf(game, leg.to);
   const f = Math.max(0, Math.min(1, (game.t - leg.departT) / (leg.arriveT - leg.departT)));
   const remainDays = Math.max(0, (leg.arriveT - game.t) / DAY);
   // How long a message home would take from here — the loneliness curve, live.
@@ -301,7 +304,7 @@ function EncounterPanel({ game, onChoose, onDismiss }) {
     <div style={{ overflowY: "auto", padding: "18px 18px 24px" }}>
       <div style={{ ...S.encKind, color: kindTone, borderColor: kindTone }}>⚠ {kindWord} · encounter</div>
       <FaceOff hull={p.ship.hull} kind={enc.kind} encounterId={enc.id}
-        distanceNote={game.leg ? `${Math.round((1 - (game.leg.arriveT - game.t) / (game.leg.arriveT - game.leg.departT)) * 100)}% of the way to ${SITE_BY_ID[game.leg.to]?.name}` : "in transit"} />
+        distanceNote={game.leg ? `${Math.round((1 - (game.leg.arriveT - game.t) / (game.leg.arriveT - game.leg.departT)) * 100)}% of the way to ${siteOf(game, game.leg.to)?.name}` : "in transit"} />
       <div style={S.encTitle}>{enc.title}</div>
       <div style={S.encText}>{enc.text}</div>
 
@@ -422,7 +425,7 @@ function GameOver({ game, onQuit }) {
 // ---------------------------------------------------------------------------
 function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
   const p = game.player;
-  const site = SITE_BY_ID[p.at];
+  const site = siteOf(game, p.at);
   const market = game.markets[p.at];
   const rows = listing(market, site);
   const fp = fuelPrice(game);
@@ -603,11 +606,67 @@ function CustomsWarning({ game, site }) {
 }
 
 // ---------------------------------------------------------------------------
+// THE ATLAS — what this captain has learned about the real solar system.
+//
+// Research as play: every place in the census has an entry, and entries reveal
+// by playing — Earth from the start, anywhere you dock, and whole systems at
+// once when you arrive with a survey lab fitted. The facts are the treasure,
+// and they are real (docs/site-atlas.md carries the sourcing ledger).
+// ---------------------------------------------------------------------------
+function AtlasPanel({ game }) {
+  const groups = atlasFor(game);
+  const { known, total } = atlasProgress(game);
+  const hasLab = fittedStats(game.player.ship.hull, game.player.ship.modules).canSurvey;
+  return (
+    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
+      <div style={S.siteName}>Atlas</div>
+      <div style={S.why}>
+        {known} of {total} places charted. Docking somewhere charts it;
+        arriving anywhere with a <b>survey lab</b> fitted charts its whole system —
+        including the places nobody has built on{hasLab ? ". Yours is aboard." : ". You don't carry one."}
+      </div>
+      {groups.map(({ system, surveyed, places }) => (
+        <div key={system.id}>
+          <div style={S.yardHead}>
+            {system.name}
+            {surveyed && <span style={{ ...S.legalTag, marginLeft: 8 }}>surveyed</span>}
+          </div>
+          {places.map(({ place, revealed, feature, site, visited }) => (
+            <div key={place.id} style={{ ...S.atlasRow, opacity: revealed ? 1 : 0.55 }}>
+              {revealed ? (
+                <>
+                  <div style={S.row2}>
+                    <b>{place.name}</b>
+                    <span style={S.small}>
+                      {visited ? "✓ visited" : feature ? "landmark" : site ? site.name : "unoccupied"}
+                    </span>
+                  </div>
+                  <div style={{ ...S.small, marginTop: 3 }}>{place.why}</div>
+                </>
+              ) : (
+                <div style={S.row2}>
+                  <span style={{ color: "var(--muted)" }}>???</span>
+                  <span style={S.small}>{feature ? "landmark — survey to chart" : "unsurveyed"}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{ ...S.small, padding: "10px 18px", fontStyle: "italic" }}>
+        Every entry here is a real place, and every reason is a real reason.
+        The atlas persists with your save — a finished run is a finished map.
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The Ship Yard — repair, fit modules, trade up (tech-gated). Where money goes.
 // ---------------------------------------------------------------------------
 function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, onDismiss }) {
   const p = game.player;
-  const site = SITE_BY_ID[p.at];
+  const site = siteOf(game, p.at);
   const stats = fittedStats(p.ship.hull, p.ship.modules);
   const slots = slotUsage(p.ship.hull, p.ship.modules);
   const hull = HULL_BY_ID[p.ship.hull];
@@ -836,7 +895,23 @@ function MarketIntel({ game, toId, shippingPerTonne }) {
   const { rows, freshness } = runPlan(game, toId, shippingPerTonne);
   const cargo = carrying ? cargoValueAt(game, toId) : null;
   const best = rows.filter((r) => r.viable).slice(0, 3);
-  const freshTone = { live: "#3E9B6E", recent: "#3E9B6E", delayed: "var(--gold)", stale: "var(--hot)" }[freshness?.key] || "var(--muted)";
+  const freshTone = { live: "#3E9B6E", recent: "#3E9B6E", delayed: "var(--gold)", stale: "var(--hot)", occluded: "var(--hot)" }[freshness?.key] || "var(--muted)";
+
+  // SOLAR CONJUNCTION: the Sun stands between here and there. No estimates, no
+  // news — flying is still allowed, but it is a bet, and the panel says so
+  // instead of pretending an empty list means "nothing profitable".
+  if (freshness?.key === "occluded") {
+    return (
+      <div style={S.intel}>
+        <div style={S.intelHead}>
+          Market intel
+          <span style={{ ...S.freshTag, color: freshTone, borderColor: freshTone }}>{freshness.label}</span>
+        </div>
+        <div style={{ ...S.small, color: "var(--hot)" }}>☀ Solar conjunction.</div>
+        <div style={S.intelNote}>{freshness.note}</div>
+      </div>
+    );
+  }
 
   return (
     <div style={S.intel}>
@@ -879,9 +954,9 @@ function MarketIntel({ game, toId, shippingPerTonne }) {
 // ---------------------------------------------------------------------------
 function Orrery({ positions, orbits, game, dest }) {
   const opts = { cx: CX, cy: CY, radius: R, trueScale: false };
-  const hereSys = SITE_BY_ID[game.player.at]?.system;
+  const hereSys = siteOf(game, game.player.at)?.system;
   const transit = game.status === "transit";
-  const destSys = transit ? SITE_BY_ID[game.leg.to]?.system : (dest && SITE_BY_ID[dest]?.system);
+  const destSys = transit ? siteOf(game, game.leg.to)?.system : (dest && siteOf(game, dest)?.system);
 
   // The arc: the actual leg while flying, or a preview to a considered target.
   let arc = null, legR1, legR2, legLon1;
@@ -915,7 +990,7 @@ function Orrery({ positions, orbits, game, dest }) {
         const pos = positions[s.id]; const { x, y } = project(pos.r, pos.lon, opts);
         const here = s.id === hereSys, isDest = s.id === destSys;
         const r = dot(s.radiusKm, s.id === "pluto" ? 1.3 : 1);
-        const held = game.factions?.some((fx) => SITE_BY_ID[fx.siteId]?.system === s.id);
+        const held = game.factions?.some((fx) => fx.system === s.id);
         return (
           <g key={s.id}>
             {here && !transit && <circle cx={x} cy={y} r={r + 12} fill="none" stroke="#F2B441" strokeWidth="1.5" strokeDasharray="3 4" />}
@@ -1016,6 +1091,7 @@ const S = {
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
   held: { color: "var(--gold)", fontSize: 12 },
   crewTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 6px", marginLeft: 4 },
+  atlasRow: { margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, fontSize: 13 },
   bannedTag: { fontSize: 10, color: "var(--hot)", border: "1px solid var(--hot)", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   legalTag: { fontSize: 10, color: "#3E9B6E", border: "1px solid #3E9B6E", borderRadius: 9, padding: "1px 6px", marginLeft: 6, whiteSpace: "nowrap" },
   tierTag: { fontSize: 11, color: "var(--muted)" },

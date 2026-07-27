@@ -35,9 +35,11 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
  *  stem the site name can build on. */
 function stem(placeName) {
   let n = placeName.replace(/^The /, "").split(",")[0];
-  const cut = [" ice sheet", " cold traps", " crater", " basalt fields", " solar fields", " cloud deck", " swarms", " anchorage", " high anchorage"];
+  const cut = [" ice sheet", " cold traps", " crater", " basalt fields", " solar fields",
+    " cloud deck", " swarms", " anchorage", " high anchorage", " lava tube", " mines", " Basin"];
   for (const c of cut) n = n.replace(c, "");
-  return n.trim();
+  // Title-case each word, so "ring mines" becomes a name and not a phrase.
+  return n.trim().split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
