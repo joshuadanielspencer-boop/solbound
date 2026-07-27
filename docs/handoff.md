@@ -119,13 +119,48 @@ open since crew landed** — play.jsx passed `crewForHire` a site *id* where it
 wanted the site. 390 tests, all green, and none of them opens a screen. That is
 the gap worth thinking about: there is no UI smoke test of any kind.
 
+### Second batch, same day — Joshua's three notes
+
+**"Not intuitive what I'm supposed to be doing."** The Dock now leads with the
+decision: name, chips, a one-line `NextStep` that reads the state you are in, the
+propellant/range box, then the market. Prose, the newspaper and the port's
+politics fold up underneath. The untraded rows from earlier the same day are
+behind a toggle — sorted by value, they put the cheap raws at the TOP, so a
+market opened as a wall of "no". That was a wrong call, corrected.
+
+**The map is a control.** Click or keyboard-focus a planet to go inside its
+system: the primary, its charted moons on real log-compressed orbital radii, and
+this run's ports pinned to the body they sit on. Click a port → it becomes the
+destination with the course plotter open. Esc backs out; launching backs out on
+its own (a leg is a heliocentric arc a system view cannot draw).
+
+**Time drifts in port** at `DOCK_RATE` (1 day/sec), one click to hold, ticking at
+10 fps because every tick re-prices the market. `game.dockClock` (undefined =
+running, so no migration). The autosave is debounced 2 s — the signature carries
+the docked date, which at a day a second is a ~30 KB write every second otherwise.
+
+**Two things worth knowing next time:**
+- **A few places anchor to a body they do not orbit.** `himalia` has
+  `body: "callisto"`, `ring-camps` has `body: "mimas"`, `phoebe-gate` has
+  `body: "iapetus"` — the data uses `body` as "nearest charted anchor", which was
+  invisible until the system view started drawing moons as orbits. Fixing it means
+  either adding Himalia/Phoebe to `MOONS` with sourced elements (rule 2) or giving
+  places an explicit "not charted, drawn near X" flag. Content work, not a bug.
+- **Do not browser-verify on Joshua's live autosave.** Now that the clock drifts
+  in port, just having the game open advances his world. Make a scratch captain,
+  or snapshot localStorage to a file first — `window.__x` does not survive the
+  reload you are about to trigger.
+
 ### ⚠ Joshua: two things about your autosave
 
 I browser-verified against your live save (Ada, Gateway Station), and:
 - **It migrated v8 → v9 cleanly** and reloads fine. Nothing was lost.
-- **Its date moved from Sep 22 to Oct 22, 2036** — I pressed the new wait button
-  on it. No money was spent (no crew aboard) and nothing else changed, but the
-  markets drifted a month and that is not reversible. Sorry.
+- **Its date moved from Sep 22, 2036 to Jan 29, 2037** — a month from pressing
+  the new wait button, then three more because the drifting clock kept running
+  while I walked the screens. No money was spent (no crew aboard), no cargo, no
+  travel, and the log still has only its opening line — it is the same untouched
+  starter captain, four months later with drifted markets. The dock clock is left
+  HELD in that save. Say the word and I will reset it to a fresh Ada.
 - I also test-bought a nuclear-thermal refit on a temporarily-enriched copy and
   restored credits, drive and log afterwards — verified back at $300,000, methalox,
   empty hold, 17 sites, 4 factions.
