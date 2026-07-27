@@ -487,13 +487,56 @@ export function buyPaper(game) {
   };
 }
 
-/** Let time pass at a site without travelling (wait for a shortage, a window). */
+/**
+ * Let time pass at a site without travelling — wait out a glut, wait for a
+ * shortage to bite, wait for a crisis to reach the port you can actually reach.
+ *
+ * This existed in the sim for a long time with no way to ask for it, and before
+ * wages there was no reason to want one: time in port was free, so "wait" was a
+ * button that did nothing to you. A wage bill changed that. Now the clock costs
+ * money, markets drift back toward equilibrium, and waiting is a position you
+ * take on the price moving further than the bill you run up holding still.
+ *
+ * Returns { game, quit } like advanceTime does — waiting can bankrupt you into
+ * losing your crew exactly as flying can, and the UI has to be able to say so.
+ */
 export function wait(game, days) {
+  if (game.status === "transit") return { game, quit: [] };   // the clock owns time in flight
+  if (game.over) return { game, quit: [] };
   const p = passTime(game, days);
   return {
-    ...game,
-    t: game.t + days * DAY,
-    markets: p.markets,
-    player: p.player,      // waiting in port is not free once you have a crew
+    game: {
+      ...game,
+      t: game.t + days * DAY,
+      markets: p.markets,
+      player: p.player,      // waiting in port is not free once you have a crew
+    },
+    quit: p.quit,
   };
+}
+
+/**
+ * HOW FAR CAN THIS SHIP GO — the readout Space Trader's Ship Yard led with, and
+ * that we made the player derive by opening the course plotter and reading every
+ * row. Two counts, and the gap between them is the whole point:
+ *
+ *   `now`   ports you could launch for on the propellant actually aboard
+ *   `full`  ports you could reach with the tank filled
+ *
+ * and both shrink as the hold fills, because mass is what the rocket equation
+ * charges for. That makes the cargo-versus-range trade visible at the moment the
+ * player is deciding how much to buy, rather than after they have bought it.
+ */
+export function rangeReport(game) {
+  const list = destinations(game);
+  let now = 0, full = 0, farthest = null;
+  for (const { site, cost } of list) {
+    if (!cost) continue;
+    if (cost.reachable) {
+      full++;
+      if (!farthest || cost.days > farthest.days) farthest = { name: site.name, days: cost.days };
+    }
+    if (cost.reachable && cost.enoughFuel) now++;
+  }
+  return { now, full, total: list.length, farthest };
 }

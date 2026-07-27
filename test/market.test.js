@@ -250,4 +250,32 @@ describe("the market screen reads as language, not arithmetic", () => {
       expect(r.price).toBeGreaterThan(0);
     }
   });
+
+  // WHAT A PLACE CANNOT GET IS INFORMATION. Omitting untraded goods hid the
+  // clearest statement of the dependency thesis a market screen can make.
+  it("can list the goods a port has NO market for, plainly flagged", () => {
+    const markets = initialMarkets();
+    const s = site("callisto-station");
+    const traded = listing(markets["callisto-station"], s);
+    const all = listing(markets["callisto-station"], s, { includeUntraded: true });
+    expect(all.length).toBe(COMMODITIES.length);
+    expect(all.length).toBeGreaterThan(traded.length);
+
+    const dead = all.filter((r) => !r.traded);
+    expect(dead.length).toBe(COMMODITIES.length - traded.length);
+    for (const r of dead) {
+      expect(r.price, r.id).toBe(null);          // nothing to quote
+      expect(r.state, r.id).toBe("not traded here");
+      expect(r.why, r.id).toBeTruthy();          // and a plain reason why
+      expect(markets["callisto-station"].stock[r.id]).toBeUndefined();
+    }
+  });
+
+  it("the traded rows are identical either way — the flag adds, it does not alter", () => {
+    const markets = initialMarkets();
+    const s = site("callisto-station");
+    const traded = listing(markets["callisto-station"], s);
+    const all = listing(markets["callisto-station"], s, { includeUntraded: true }).filter((r) => r.traded);
+    expect(all).toEqual(traded);
+  });
 });

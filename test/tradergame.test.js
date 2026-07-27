@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   newGame, travelCost, destinations, travel, refuel, fuelPrice,
   buy, sell, wait, tankMax, tankFree, START_DATE,
-  launch, advanceTime, shipPosition, RATES,
+  launch, advanceTime, shipPosition, RATES, rangeReport,
 } from "../src/tradergame.js";
 import { newPlayer, cargoUsed } from "../src/player.js";
 import { defaultSkills } from "../src/data/captain.js";
@@ -135,9 +135,44 @@ describe("time and markets move while you fly", () => {
 
   it("waiting also drifts the markets", () => {
     const g = freshGame();
-    const g2 = wait(g, 200);
+    const g2 = wait(g, 200).game;
     expect(g2.t).toBeGreaterThan(g.t);
     expect(JSON.stringify(g2.markets)).not.toBe(JSON.stringify(g.markets));
+  });
+
+  // The clock owns time in flight — a wait button that worked mid-transit would
+  // let a player skip past a rolled encounter without ever meeting it.
+  it("waiting is refused under way, so it cannot be used to dodge the leg", () => {
+    let g = freshGame();
+    ({ game: g } = launch(g, "shackleton"));
+    const r = wait(g, 60);
+    expect(r.game.t).toBe(g.t);
+    expect(r.game).toBe(g);
+  });
+});
+
+describe("how far this ship can go, in one number", () => {
+  it("counts what the tank can reach now and what a full tank would", () => {
+    const g = freshGame();
+    const r = rangeReport(g);
+    expect(r.total).toBe(destinations(g).length);
+    expect(r.full).toBeGreaterThanOrEqual(r.now);
+    expect(r.full).toBeLessThanOrEqual(r.total);
+    expect(r.farthest.name).toBeTruthy();
+  });
+
+  it("a loaded hold reaches fewer ports than an empty one — mass is the charge", () => {
+    const empty = freshGame();
+    const { game: loaded } = buy(empty, "machinery", 6);
+    expect(rangeReport(loaded).full).toBeLessThanOrEqual(rangeReport(empty).full);
+    expect(rangeReport(loaded).farthest.days).toBeLessThanOrEqual(rangeReport(empty).farthest.days);
+  });
+
+  it("a dry tank reaches nothing now, but the ship is not stranded on paper", () => {
+    const g = freshGame();
+    const dry = { ...g, player: { ...g.player, ship: { ...g.player.ship, fuelTonnes: 0 } } };
+    expect(rangeReport(dry).now).toBe(0);
+    expect(rangeReport(dry).full).toBeGreaterThan(0);
   });
 });
 

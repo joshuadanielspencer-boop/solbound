@@ -194,10 +194,22 @@ export function priceAt(market, site, commodityId) {
   return Math.round(c.valuePerTonne * priceMultiplier(stock / nominalStock(site, commodityId)));
 }
 
-/** Everything traded at a site, with prices and stock, for the market screen. */
-export function listing(market, site) {
+/**
+ * Everything traded at a site, with prices and stock, for the market screen.
+ *
+ * WITH `includeUntraded`, the goods this site has NO market for come back too,
+ * flagged `traded: false` and priced null. Omitting them entirely hid the most
+ * teachable thing on the screen: "Reactor components — not traded here" at a
+ * polar ice camp is how a player learns what a place cannot get, which is the
+ * whole dependency thesis (design.md §5) stated as a row in a table. Space
+ * Trader listed every good at every system for exactly this reason.
+ *
+ * Untraded rows carry `why` — the plain reason, which is always one of the same
+ * three: it isn't here, nobody here needs it, and nobody here can build it.
+ */
+export function listing(market, site, { includeUntraded = false } = {}) {
   if (!market) return [];
-  return Object.keys(market.stock).map((id) => {
+  const rows = Object.keys(market.stock).map((id) => {
     const c = COMMODITY_BY_ID[id];
     const nominal = nominalStock(site, id);
     const stock = market.stock[id];
@@ -206,6 +218,7 @@ export function listing(market, site) {
       id, name: c.name, tier: c.tier, note: c.note, lesson: c.lesson,
       contraband: c.contraband || null,
       banned: bannedAt(site, c),      // legal to hold here, or a crime?
+      traded: true,
       stock, nominal, ratio,
       price: priceAt(market, site, id),
       base: c.valuePerTonne,
@@ -215,7 +228,29 @@ export function listing(market, site) {
       state: ratio < 0.3 ? "critically short" : ratio < 0.7 ? "short"
         : ratio < 1.6 ? "steady" : "surplus",
     };
-  }).sort((a, b) => a.base - b.base);
+  });
+
+  if (includeUntraded) {
+    for (const c of COMMODITIES) {
+      if (market.stock[c.id] !== undefined) continue;
+      rows.push({
+        id: c.id, name: c.name, tier: c.tier, note: c.note, lesson: c.lesson,
+        contraband: c.contraband || null,
+        banned: bannedAt(site, c),
+        traded: false,
+        stock: 0, nominal: nominalStock(site, c.id), ratio: 0,
+        price: null,
+        base: c.valuePerTonne,
+        produces: false, consumes: false,
+        state: "not traded here",
+        why: `Nothing here extracts it, needs it, or can build it — so there is no market to buy from or sell into.`,
+      });
+    }
+  }
+  // Traded goods first, cheapest to dearest; the dead rows follow. Sorting them
+  // together by value put three greyed-out raws at the TOP of Gateway Station's
+  // market, which buried the actual shelves under a lesson.
+  return rows.sort((a, b) => (a.traded === b.traded ? a.base - b.base : a.traded ? -1 : 1));
 }
 
 /** How fast an unattended market drifts back to its natural level. A ~60-day

@@ -162,13 +162,13 @@ describe("wages make the calendar cost something", () => {
     let g = bigShip();
     g = hireCrew(g, crewForHire(g.seed, at(g, "leo"), g.t)[0].id).game;
     const before = g.player.credits;
-    expect(wait(g, 100).player.credits).toBeLessThan(before);
+    expect(wait(g, 100).game.player.credits).toBeLessThan(before);
   });
 
   it("an empty ship still costs nothing — the captain draws no wage", () => {
     const g = game();
     expect(dailyCost(g)).toBe(0);
-    expect(wait(g, 500).player.credits).toBe(g.player.credits);
+    expect(wait(g, 500).game.player.credits).toBe(g.player.credits);
   });
 
   it("the fast-forward button cannot make a crossing cheaper", () => {

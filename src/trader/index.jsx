@@ -21,8 +21,14 @@ import { autosave, loadAutosave, hasSave, clearSave } from "../save.js";
 // we'd batter localStorage. Everything a player would hate to lose — where they
 // are, their money, their cargo, the current leg — is in here, and none of it
 // changes on a mere tick.
+//
+// The DATE is in here only while docked. In transit the clock moves it ~30 times
+// a second and it must not trigger a save; docked, the only thing that moves it
+// is the wait button — and waiting ninety days with no crew aboard changes
+// nothing else in this fingerprint, so a refresh silently undid the wait.
 const saveSig = (g) =>
-  `${g.status}|${g.player.at}|${Math.round(g.player.credits)}|${g.leg?.to || ""}|${cargoUsed(g.player)}|${g.player.ship.fuelTonnes.toFixed(1)}`;
+  `${g.status}|${g.player.at}|${Math.round(g.player.credits)}|${g.leg?.to || ""}|${cargoUsed(g.player)}`
+  + `|${g.player.ship.fuelTonnes.toFixed(1)}|${g.status === "docked" ? Math.round(g.t / 86400000) : ""}`;
 
 export default function Trader() {
   const [phase, setPhase] = useState("splash");   // "splash" | "create" | "play"

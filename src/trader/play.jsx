@@ -37,6 +37,7 @@ import { govOf } from "../data/sites.js";
 import {
   travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
   buy, sell, tankMax, RATES, dailyCost, tripCost, paperPrice, buyPaper,
+  wait, rangeReport,
 } from "../tradergame.js";
 
 const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
@@ -136,6 +137,18 @@ export default function Play({ game, setGame, onQuit }) {
   const doBuyPod = () => { const r = buyEscapePod(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Escape pod fitted for ${money(r.spent)}. Cheaper than the alternative.`); };
   const doHire = (id) => { const r = hireCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.hired.name} signed on at ${money(r.hired.wage)}/day.`); };
   const doBuyPaper = () => { const r = buyPaper(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); };
+  // Waiting in port. The bill and the drift are the point, so the toast says
+  // what it cost — otherwise "wait 30 days" reads as a free button.
+  const doWait = (days) => {
+    const before = game.player.credits;
+    const r = wait(game, days);
+    setGame(r.game);
+    const spent = before - r.game.player.credits;
+    flash(spent > 0
+      ? `Waited ${fmtDur(days)}. ${money(spent)} in wages, and the market moved.`
+      : `Waited ${fmtDur(days)}. The market moved; nothing else did.`);
+    if (r.quit?.length) flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad");
+  };
   const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
 
   // Download the current game as a file — survives a cleared cache and moves
@@ -175,7 +188,7 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "standing" ? S.tabOn : null) }} onClick={() => setMode("standing")}>⚖ Standing</button>
                 <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
-              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} />
+              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} onWait={doWait} />
                 : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
                   : mode === "standing" ? <StandingPanel game={game} />
                     : mode === "atlas" ? <AtlasPanel game={game} />
@@ -426,11 +439,13 @@ function GameOver({ game, onQuit }) {
 // ---------------------------------------------------------------------------
 // Dock
 // ---------------------------------------------------------------------------
-function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
+function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }) {
   const p = game.player;
   const site = siteOf(game, p.at);
   const market = game.markets[p.at];
-  const rows = listing(market, site);
+  // Every commodity, including the ones this port has no market for. What a
+  // place CANNOT get is half of what makes it a place (design.md §5).
+  const rows = listing(market, site, { includeUntraded: true });
   const fp = fuelPrice(game);
   const tank = tankMax(p), tankFreeT = tank - p.ship.fuelTonnes;
   const control = factionAt(game.factions, site.id);
@@ -468,13 +483,34 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
             <button style={S.smallBtn} onClick={() => onRefuel(tankFreeT)}>Fill ({money(fp * tankFreeT)})</button>
           </div>
         )}
+        <RangeLine game={game} />
       </div>
+
+      <WaitBox game={game} onWait={onWait} />
 
       <div style={S.marketHead}>Market</div>
       <div style={{ padding: "0 12px 16px" }}>
-        {rows.map((r) => {
+        {rows.map((r, i) => {
           const held = p.cargo[r.id] || 0;
           const paid = Math.round(p.costBasis?.[r.id] || 0);
+          // A good this port has no market for still gets a row. It cannot be
+          // bought or sold here, and saying so is the lesson: what a place
+          // can't get is why anyone flies to it. They sit BELOW the shelves,
+          // under their own heading, so the lesson doesn't bury the market.
+          if (!r.traded) {
+            return (
+              <div key={r.id}>
+                {rows[i - 1]?.traded !== false && <div style={S.deadHead}>No market here for</div>}
+                <div style={S.mrowDead} title={r.why}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                    <span>{r.name}{held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
+                    <span style={S.tierTag}>{TIERS[r.tier].name}</span>
+                  </div>
+                  <span style={S.notSold}>not traded here</span>
+                </div>
+              </div>
+            );
+          }
           const bp = buyPrice(p, market, site, r.id), sp = sellPrice(p, market, site, r.id);
           const on = sel === r.id;
           return (
@@ -503,6 +539,57 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * HOW FAR THIS SHIP CAN GO, in one line, where the player is deciding how much
+ * to buy. The gap between "with what's aboard" and "with a full tank" is the
+ * refuelling decision; the fact that both numbers FALL as the hold fills is the
+ * rocket equation, stated without an equation.
+ */
+function RangeLine({ game }) {
+  const r = rangeReport(game);
+  if (!r.total) return null;
+  return (
+    <div style={{ ...S.small, marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 7 }}>
+      <b style={{ color: r.now ? "var(--text)" : "var(--hot)" }}>{r.now} of {r.total} ports</b> in reach
+      on the propellant aboard{r.full > r.now && <> · <b>{r.full}</b> with the tank full</>}
+      {r.farthest && <> · farthest is {r.farthest.name}, {fmtDur(r.farthest.days)} out</>}.
+      {" "}A fuller hold reaches fewer — mass is what the equation charges for.
+    </div>
+  );
+}
+
+/**
+ * WAITING. wait() sat in the sim for weeks with no way to ask for it, because
+ * before wages there was nothing to weigh: time in port was free. Now the clock
+ * charges you, so "sit here three weeks for the shortage to bite" is a position
+ * you take — and the box quotes the bill before you take it.
+ */
+function WaitBox({ game, onWait }) {
+  const perDay = dailyCost(game);
+  const OPTIONS = [7, 30, 90];
+  return (
+    <div style={S.fuelBox}>
+      <div style={S.fuelHead}>
+        <span><b>Wait here</b></span>
+        <span style={S.small}>{perDay > 0 ? `${money(perDay)}/day in wages` : "costs you nothing but the date"}</span>
+      </div>
+      <div style={S.row}>
+        {OPTIONS.map((d) => (
+          <button key={d} style={S.smallBtn} onClick={() => onWait(d)}
+            title={`Wait ${d} days here${perDay > 0 ? ` — ${money(perDay * d)} in wages` : ""}`}>
+            +{d} days{perDay > 0 && ` (${money(perDay * d)})`}
+          </button>
+        ))}
+      </div>
+      <div style={{ ...S.small, marginTop: 7 }}>
+        Prices drift back toward what a place structurally pays. Waiting sells a glut
+        down and lets a shortage bite — against a wage bill and a calendar that does
+        not come back.
       </div>
     </div>
   );
@@ -822,6 +909,9 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, on
               title={kind.note}>{kind.emoji} {kind.name} {slots.used[k]}/{slots.total[k]}</span>
           ))}
         </div>
+        {/* Their Ship Yard led with how far you can go. Ours made you open the
+            course plotter and read every row to find out. */}
+        <RangeLine game={game} />
         {dmg > 0
           ? <button style={S.yardBtn} onClick={onRepair}>Repair hull — {money(repair)}</button>
           : <div style={{ ...S.small, marginTop: 6 }}>Hull sound. No repairs needed.</div>}
@@ -1214,6 +1304,11 @@ const S = {
   shipBuyBtn: { background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontWeight: 700, fontSize: 13, flexShrink: 0, fontVariantNumeric: "tabular-nums" },
   mrow: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", background: "none", border: "1px solid transparent", borderRadius: 8, cursor: "pointer", color: "var(--text)", textAlign: "left" },
   mrowOn: { background: "var(--panel-2)", border: "1px solid var(--line)" },
+  // A good with no market here. Dimmed and not a button, because there is
+  // nothing to press — but present, because its absence is information.
+  mrowDead: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 10px", border: "1px solid transparent", borderRadius: 8, opacity: 0.45, color: "var(--muted)", textAlign: "left" },
+  notSold: { fontSize: 12, color: "var(--muted)", fontStyle: "italic", whiteSpace: "nowrap" },
+  deadHead: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "14px 0 4px", borderTop: "1px solid var(--line)", marginTop: 8 },
   held: { color: "var(--gold)", fontSize: 12 },
   crewTag: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 6px", marginLeft: 4 },
   atlasRow: { margin: "0 18px 6px", padding: "9px 12px", background: "#0B111C", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, fontSize: 13 },
