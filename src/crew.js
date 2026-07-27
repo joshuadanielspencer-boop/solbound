@@ -38,6 +38,12 @@ export const HIRING_BLOCK_DAYS = 40;
  */
 export function crewForHire(seed, site, t) {
   if (!site) return [];
+  // The contract is the SITE, not its id. Getting it wrong used to fail deep in
+  // the hash as "cannot read length of undefined", which is how the whole Yard
+  // tab crashed unnoticed for a release. Say what is actually wrong.
+  if (typeof site === "string") {
+    throw new TypeError(`crewForHire wants the site object, not its id ("${site}"). Use siteOf(game, id).`);
+  }
   const siteId = site.id;
   const block = Math.floor((t - Date.UTC(2035, 0, 1)) / (HIRING_BLOCK_DAYS * DAY));
   // Hash the three inputs into one stream. Site id goes in character by character

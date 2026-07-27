@@ -23,7 +23,7 @@
 import { siteOf, techOf } from "./data/sites.js";
 import { SYSTEM_BY_ID } from "./data/bodies.js";
 import { DRIVES } from "./propulsion.js";
-import { propellantFor, massRatio } from "./propulsion.js";
+import { propellantFor, massRatio, tankAfter } from "./propulsion.js";
 import { transferOptions, transferPosition, hohmann } from "./transfer.js";
 import { heliocentric } from "./ephemeris.js";
 import { fittedStats } from "./data/hulls.js";
@@ -254,18 +254,40 @@ export function launch(game, destId) {
  * rhythm the player liked.
  */
 /**
- * Everything that happens purely because `days` went by: markets drift, and the
- * crew get paid. One place, so the clock's three stopping points (an encounter,
- * an arrival, an ordinary tick) can't disagree about what a day costs.
+ * Everything that happens purely because `days` went by: markets drift, the crew
+ * get paid, and cryogenic propellant boils away. One place, so the clock's three
+ * stopping points (an encounter, an arrival, an ordinary tick) can't disagree
+ * about what a day costs.
+ *
+ * BOIL-OFF is what stops a better drive from being simply a better drive. Methane
+ * keeps — which is exactly why it was picked for Mars. Hydrogen does not, and both
+ * hydrolox and NERVA-class nuclear thermal fly on hydrogen, so the era that
+ * doubles your exhaust velocity also drains your reserve while you coast. The
+ * cryocooler is the answer, and it costs a gadget bay.
+ *
+ * It is applied to what is left in the TANK, not to the trip: the propellant for a
+ * leg is spent at the departure burn, so boil-off eats the reserve you were going
+ * to arrive with. It can make a port you cannot refuel at into a trap. It can
+ * never strand you mid-flight, which would be a gotcha rather than a lesson.
  */
 function passTime(game, days) {
   const w = payWages(game.player, days);
+  const drive = DRIVES[w.player.ship.drive] || DRIVES.methalox;
+  const stats = fittedStats(w.player.ship.hull, w.player.ship.modules);
+  const kept = tankAfter(w.player.ship.fuelTonnes, drive, days, stats?.cryo ? CRYO_FACTOR : 1);
   return {
-    player: w.player,
+    player: kept === w.player.ship.fuelTonnes
+      ? w.player
+      : { ...w.player, ship: { ...w.player.ship, fuelTonnes: Math.max(0, kept) } },
     markets: advanceMarkets(game.markets, days),
     quit: w.quit,
   };
 }
+
+/** What a cryocooler multiplies the boil-off rate by. A tenth: active
+ *  refrigeration is the difference between "loses most of it over a Saturn run"
+ *  and "loses a fifth", which is the difference between possible and not. */
+export const CRYO_FACTOR = 0.1;
 
 export function advanceTime(game, toT) {
   if (toT <= game.t) return { game };

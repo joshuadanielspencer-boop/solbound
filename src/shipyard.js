@@ -15,9 +15,10 @@ import {
   HULLS, HULL_BY_ID, MODULE_BY_ID, MODULES, fittedStats, slotUsage,
   HULL_RESALE, MODULE_RESALE, ESCAPE_POD, SLOT_KINDS,
 } from "./data/hulls.js";
-import { siteOf, techOf } from "./data/sites.js";
+import { siteOf, techOf, TECH_LEVELS } from "./data/sites.js";
 import { cargoUsed } from "./player.js";
 import { berthsFor } from "./data/crew.js";
+import { DRIVES } from "./propulsion.js";
 
 /** What a ship (hull + its fitted modules) is worth as a trade-in. Never the
  *  full price — a used hull loses value, which makes buying up a commitment. */
@@ -132,6 +133,87 @@ export function buyShip(game, siteId, hullId) {
     },
     hullName: h.name,
     net,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// THE DRIVE — the only purchase that redraws the map
+// ---------------------------------------------------------------------------
+//
+// Every other thing in this yard changes a number. A drive era changes what the
+// map MEANS (design.md §8): the same Saturn that costs a starter Courier 551 t
+// of methalox — which is to say, is impossible — costs a nuclear-thermal ship a
+// fraction of that, because the rocket equation charges you exponentially and an
+// era doubles the base you are exponentiating against.
+//
+// So it is priced as the campaign's mountain, well past the biggest hull, and it
+// is gated on a yard that could plausibly build one. A reactor is not something a
+// frontier outpost fits while you wait.
+
+/** What the plant currently aboard is worth against a refit. */
+export const DRIVE_RESALE = 0.45;
+export const driveTradeIn = (driveId) => Math.round((DRIVES[driveId]?.price || 0) * DRIVE_RESALE);
+
+/**
+ * The drives this port could refit, with the net cost after trading in the plant
+ * you are flying. Drives that are NOT for sale come back too, carrying the reason
+ * — the ion drive because our travel model has no windows for it to make
+ * irrelevant, the torch because it is impossible. A player should be able to see
+ * the whole ladder and where it stops, which is half of what it teaches.
+ */
+export function drivesForSale(game, siteId = game.player.at) {
+  const site = siteOf(game, siteId);
+  const tech = techOf(site).n;
+  const current = game.player.ship.drive || "methalox";
+  const trade = driveTradeIn(current);
+  return Object.values(DRIVES).map((d) => {
+    const owned = d.id === current;
+    const net = owned ? 0 : d.price - trade;
+    return {
+      drive: d, owned, net,
+      techOK: tech >= (d.minTech || 1),
+      affordable: net <= game.player.credits,
+      canBuy: !owned && d.forSale && tech >= (d.minTech || 1) && net <= game.player.credits,
+      reason: !d.forSale ? d.notForSale
+        : tech >= (d.minTech || 1) ? null
+          : `${site.name} cannot fit one. It takes a ${TECH_LEVELS[d.minTech]?.name || "more developed"} yard.`,
+    };
+  });
+}
+
+/**
+ * Refit the ship with `driveId`. The tank comes back full — a refit drains and
+ * re-services it, and arriving at a new era with an empty tank would make the
+ * biggest purchase in the game feel like a punishment.
+ */
+export function buyDrive(game, driveId) {
+  const d = DRIVES[driveId];
+  const site = siteOf(game, game.player.at);
+  if (!d) return { error: "no-such-drive" };
+  if (!d.forSale) return { error: "not-for-sale", reason: d.notForSale };
+  if (driveId === (game.player.ship.drive || "methalox")) return { error: "already-own", reason: "You're flying it." };
+  if (techOf(site).n < (d.minTech || 1)) {
+    return {
+      error: "tech",
+      reason: `${site.name} cannot fit a ${d.name.toLowerCase()} — it takes a ${TECH_LEVELS[d.minTech]?.name || "better"} yard.`,
+    };
+  }
+  const net = d.price - driveTradeIn(game.player.ship.drive || "methalox");
+  if (net > game.player.credits) {
+    return { error: "credits", reason: `A ${d.name.toLowerCase()} refit runs ${net.toLocaleString()} credits after trade-in.` };
+  }
+  const stats = fittedStats(game.player.ship.hull, game.player.ship.modules);
+  return {
+    game: {
+      ...game,
+      player: {
+        ...game.player,
+        credits: game.player.credits - net,
+        ship: { ...game.player.ship, drive: driveId, fuelTonnes: stats.fuelTonnes },
+      },
+      log: [...(game.log || []), `Refitted with a ${d.name.toLowerCase()} at ${site.name}.`],
+    },
+    driveName: d.name, net,
   };
 }
 

@@ -40,6 +40,14 @@ const bigShip = (credits = 5_000_000) => {
 };
 
 describe("who is in the bar", () => {
+  // The Yard tab passed a site ID here for a whole release and crashed on every
+  // open, deep inside the hash, as "cannot read length of undefined". A silent
+  // contract is how a UI bug hides behind a green test suite.
+  it("says so loudly when handed a site id instead of a site", () => {
+    const g = game();
+    expect(() => crewForHire(g.seed, "leo", g.t)).toThrow(/site object/);
+  });
+
   it("is the same list on the same day, however many times you look", () => {
     const g = game();
     const a = crewForHire(g.seed, at(g, "leo"), g.t).map((c) => c.id);

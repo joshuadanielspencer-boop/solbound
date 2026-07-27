@@ -119,6 +119,10 @@ export const MODULES = [
     note: "Prospect a site to reveal its resources — you cannot build where you have not surveyed." },
   { id: "smuggler", name: "Shielded hold", emoji: "🕳", slot: "gadget", price: 85000, adds: { concealment: 2 },
     note: "A bay that does not appear on a manifest. Customs have to look harder, and sometimes they don't find it." },
+  // The answer to hydrogen. Useless on methalox, and the thing that makes a
+  // nuclear-thermal ship able to actually reach Saturn with fuel still aboard.
+  { id: "cryo", name: "Cryocooler", emoji: "❄️", slot: "gadget", price: 140000, adds: { cryo: true },
+    note: "Actively refrigerated tankage. Liquid hydrogen boils away on a long coast — chemical hydrolox and nuclear thermal both run on it. This cuts the loss to a tenth. Does nothing at all for methane, which keeps." },
   { id: "shield", name: "Shielding", emoji: "🛡", slot: "shield", price: 45000, adds: { defense: 2 },
     note: "Soak a hit. Turns a bad encounter from fatal into expensive." },
   { id: "laser", name: "Laser", emoji: "⚡", slot: "weapon", price: 40000, adds: { weapon: 2 },
@@ -157,6 +161,7 @@ export function fittedStats(hullId, moduleIds = []) {
     slots: slots.total, slotsFree: slots.free, slotCount: slots.totalSlots,
     crew: h.crew,
     canMine: false, canSurvey: false, defense: 0, weapon: 0, concealment: 0,
+    cryo: false,
   };
   for (const id of moduleIds) {
     const m = MODULE_BY_ID[id];

@@ -23,9 +23,11 @@ import { runPlan, cargoValueAt } from "../intel.js";
 import { atlasFor, atlasProgress } from "../atlas.js";
 import { systemInfo, generateNews } from "../worldinfo.js";
 import { fittedStats, MODULE_BY_ID, HULL_BY_ID, ESCAPE_POD, SLOT_KINDS, slotUsage } from "../data/hulls.js";
-import { techOf } from "../data/sites.js";
-import { shipsForSale, modulesForSale, tradeInValue, repairCost } from "../shipyard.js";
-import { buyShip, fitModule, removeModule, repairHull, buyEscapePod } from "../shipyard.js";
+import { techOf, TECH_LEVELS } from "../data/sites.js";
+import { shipsForSale, modulesForSale, tradeInValue, repairCost, drivesForSale, driveTradeIn } from "../shipyard.js";
+import { buyShip, fitModule, removeModule, repairHull, buyEscapePod, buyDrive } from "../shipyard.js";
+import { DRIVES, tankAfter } from "../propulsion.js";
+import { CRYO_FACTOR } from "../tradergame.js";
 import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
 import { CREW_BY_ID, berthsFor } from "../data/crew.js";
 import { SKILLS } from "../data/captain.js";
@@ -135,6 +137,7 @@ export default function Play({ game, setGame, onQuit }) {
   const doRemove = (id) => { const r = removeModule(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Removed the ${r.removed}, ${money(r.refund)} back.`); };
   const doRepair = () => { const r = repairHull(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Repaired ${r.repaired} points of hull for ${money(r.cost)}.`); };
   const doBuyPod = () => { const r = buyEscapePod(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Escape pod fitted for ${money(r.spent)}. Cheaper than the alternative.`); };
+  const doBuyDrive = (id) => { const r = buyDrive(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`Refitted with a ${r.driveName.toLowerCase()} for ${money(r.net)}. The map just changed — check your course.`); };
   const doHire = (id) => { const r = hireCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.hired.name} signed on at ${money(r.hired.wage)}/day.`); };
   const doBuyPaper = () => { const r = buyPaper(game); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); };
   // Waiting in port. The bill and the drift are the point, so the toast says
@@ -189,7 +192,7 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
               {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} onWait={doWait} />
-                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} />
+                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} onBuyDrive={doBuyDrive} />
                   : mode === "standing" ? <StandingPanel game={game} />
                     : mode === "atlas" ? <AtlasPanel game={game} />
                       : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
@@ -281,6 +284,13 @@ function TransitPanel({ game }) {
       <div style={S.hr} />
       <Row label="Time under way" value={fmtDur((game.t - leg.departT) / DAY)} />
       <Row label="Propellant burned" value={`${leg.fuelCost.toFixed(1)} t`} />
+      {/* The reserve is draining under you on a hydrogen drive, and arriving
+          somewhere that doesn't sell propellant with an empty tank is the
+          consequence you cannot see coming from a static number. */}
+      <Row label="In the tank" value={`${game.player.ship.fuelTonnes.toFixed(1)} t`}
+        hint={(DRIVES[game.player.ship.drive] || DRIVES.methalox).boilOffPerDay
+          ? "boiling off as you coast — hydrogen does not keep"
+          : "methane keeps; nothing is being lost"} />
       <Row label="A message home takes" value={lag ? sayLightTime(lag) : "—"} hint="one way, at the speed of light" />
       {/* A quiet leg still had something in it — it just wasn't worth stopping for. */}
       {leg.quietNote && <p style={{ ...S.small, marginTop: 14, fontStyle: "italic" }}>{leg.quietNote}</p>}
@@ -483,6 +493,7 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
             <button style={S.smallBtn} onClick={() => onRefuel(tankFreeT)}>Fill ({money(fp * tankFreeT)})</button>
           </div>
         )}
+        <BoilOffLine game={game} />
         <RangeLine game={game} />
       </div>
 
@@ -540,6 +551,28 @@ function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * WHAT THE TANK IS LOSING WHILE YOU STAND HERE. Only shown for a drive that
+ * actually boils — a methalox ship should never see this line, because methane
+ * keeps, and that is the point of methane.
+ */
+function BoilOffLine({ game }) {
+  const p = game.player;
+  const drive = DRIVES[p.ship.drive] || DRIVES.methalox;
+  if (!drive.boilOffPerDay) return null;
+  const stats = fittedStats(p.ship.hull, p.ship.modules);
+  const insulation = stats?.cryo ? CRYO_FACTOR : 1;
+  const perMonth = p.ship.fuelTonnes - tankAfter(p.ship.fuelTonnes, drive, 30, insulation);
+  if (perMonth < 0.01) return null;
+  return (
+    <div style={{ ...S.small, marginTop: 8, color: "var(--gold)" }}>
+      ❄ Boiling off about <b>{perMonth.toFixed(1)} t a month</b> — {drive.name.toLowerCase()} runs on
+      hydrogen{stats?.cryo ? ", even with the cryocooler running" : ", and nothing aboard is chilling it"}.
+      It goes on wherever you are.
     </div>
   );
 }
@@ -874,7 +907,7 @@ function AtlasPanel({ game }) {
 // ---------------------------------------------------------------------------
 // The Ship Yard — repair, fit modules, trade up (tech-gated). Where money goes.
 // ---------------------------------------------------------------------------
-function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, onDismiss }) {
+function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, onDismiss, onBuyDrive }) {
   const p = game.player;
   const site = siteOf(game, p.at);
   const stats = fittedStats(p.ship.hull, p.ship.modules);
@@ -886,7 +919,10 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, on
   const mods = modulesForSale(game);
   const yardTech = techOf(site);
   const eff = effectiveSkills(p);
-  const forHire = crewForHire(game.seed, p.at, game.t);
+  // crewForHire wants the SITE, not its id — passing the id made siteId
+  // undefined and threw on the first character of the hash. It has been
+  // crashing the whole Yard tab since crew landed; nothing tests the UI.
+  const forHire = crewForHire(game.seed, site, game.t);
   const berths = berthsFor(hull);
 
   return (
@@ -916,6 +952,8 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, on
           ? <button style={S.yardBtn} onClick={onRepair}>Repair hull — {money(repair)}</button>
           : <div style={{ ...S.small, marginTop: 6 }}>Hull sound. No repairs needed.</div>}
       </div>
+
+      <DriveShop game={game} onBuyDrive={onBuyDrive} />
 
       {/* The escape pod — the cheapest insurance in the game */}
       <div style={{ ...S.yardCard, borderColor: p.ship.escapePod ? "#3E9B6E" : "var(--hot)" }}>
@@ -1024,6 +1062,74 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, on
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// THE DRIVE SHOP — the only purchase that redraws the map.
+//
+// Everything else in this yard changes a number. An era changes what the map
+// MEANS (design.md §8), because the rocket equation charges exponentially and a
+// new era doubles the base you are exponentiating against. So this is priced as
+// the campaign's mountain and gated on a yard that could plausibly build one.
+//
+// The drives that are NOT for sale are listed with their reasons, because the
+// reasons teach: the ion drive waits for a travel model with launch windows in
+// it, and the torch is impossible and this game says why.
+// ---------------------------------------------------------------------------
+function DriveShop({ game, onBuyDrive }) {
+  const p = game.player;
+  const rows = drivesForSale(game);
+  const current = DRIVES[p.ship.drive] || DRIVES.methalox;
+  const stats = fittedStats(p.ship.hull, p.ship.modules);
+  const insulation = stats?.cryo ? CRYO_FACTOR : 1;
+  // What the tank alone would lose over a long coast — the number that makes
+  // "hydrogen does not keep" a fact you feel rather than read.
+  const yearKept = tankAfter(1, current, 365, insulation);
+
+  return (
+    <>
+      <div style={S.yardHead}>Drive · {current.name}</div>
+      <div style={{ ...S.small, padding: "0 18px 8px" }}>
+        {current.note}{" "}
+        {current.boilOffPerDay > 0 ? (
+          <span style={{ color: yearKept < 0.75 ? "var(--hot)" : "var(--gold)" }}>
+            It runs on liquid hydrogen, which boils: a year of coasting leaves{" "}
+            <b>{Math.round(yearKept * 100)}%</b> of whatever is still in the tank
+            {stats?.cryo ? ", with the cryocooler running." : ". A cryocooler cuts that to a tenth."}
+          </span>
+        ) : (
+          <span>It keeps indefinitely in the tank — which is most of why anyone still flies one.</span>
+        )}
+      </div>
+      {rows.map(({ drive: d, owned, net, canBuy, reason }) => (
+        <div key={d.id} style={{ ...S.shipRow, ...(owned ? S.shipOwned : null), opacity: d.forSale ? 1 : 0.6 }}>
+          <div style={{ flex: 1 }}>
+            <div>
+              <b>{d.name}</b> {owned && <span style={S.ownedTag}>fitted</span>}
+              {d.speculative && <span style={S.bannedTag}>speculative</span>}
+            </div>
+            <div style={S.small}>
+              {d.isp} s exhaust · {d.trajectory}
+              {d.boilOffPerDay > 0 ? " · hydrogen, and it boils" : " · storable"}
+              {d.forSale && !owned && ` · needs a ${TECH_LEVELS[d.minTech]?.name.toLowerCase()} yard`}
+            </div>
+            <div style={S.shipNote}>{reason || d.note}</div>
+          </div>
+          {owned ? <span style={S.small}>—</span>
+            : d.forSale
+              ? <button style={{ ...S.shipBuyBtn, opacity: canBuy ? 1 : 0.4 }} disabled={!canBuy}
+                  onClick={() => onBuyDrive(d.id)} title={reason || ""}>
+                  {net >= 0 ? money(net) : `+${money(-net)}`}
+                </button>
+              : <span style={S.small}>—</span>}
+        </div>
+      ))}
+      <div style={{ ...S.small, padding: "6px 18px 0" }}>
+        Trade-in on the {current.name.toLowerCase()} aboard: {money(driveTradeIn(p.ship.drive))}.
+        A refit delivers the tank full. Your drive comes with you when you change hulls.
+      </div>
+    </>
   );
 }
 

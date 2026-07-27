@@ -54,6 +54,21 @@ const AU_M = 1.495978707e11;
  * Iₛₚ figures are vacuum values for real, flown or designed engines:
  *   RL10 / Centaur hydrolox ≈ 450 s · Raptor-class methalox ≈ 380 s
  *   NERVA-class solid-core NTR ≈ 850 s · gridded ion (NEXT) ≈ 4,200 s
+ *
+ * THE COMMERCIAL FIELDS — `price`, `minTech`, `forSale`, `notForSale` — are what
+ * turn the era table into the campaign's spine rather than a reference chart. A
+ * refit is the biggest single purchase in the game, because it is the only one
+ * that changes what the MAP means (design.md §8).
+ *
+ * `boilOffPerDay` is the fraction of the propellant still in the tank that is
+ * lost each day, and it is the reason a better exhaust velocity is not simply
+ * a better engine. Methalox is storable — that is precisely why it was chosen
+ * for Mars. Liquid hydrogen is not: it boils, continuously, and passive tankage
+ * loses on the order of a tenth of a percent a day. Hydrolox and NERVA-class
+ * nuclear thermal both fly on hydrogen, so both pay it. Over a nine-month Mars
+ * coast that is a third of the reserve; over a Saturn run it is nearly all of
+ * it — which is why the cryocooler in data/hulls.js exists, and why long-duration
+ * hydrogen storage is a real engineering programme rather than a footnote.
  */
 export const DRIVES = {
   methalox: {
@@ -61,30 +76,44 @@ export const DRIVES = {
     isp: 380, thrustKN: 2000, available: 2025, speculative: false,
     note: "Storable, and you can make it on Mars from the atmosphere. The workhorse.",
     trajectory: "impulsive",
+    price: 70000, minTech: 2, forSale: true, boilOffPerDay: 0,
   },
   hydrolox: {
     id: "hydrolox", name: "Hydrolox chemical", era: "chemical",
     isp: 450, thrustKN: 1000, available: 2025, speculative: false,
     note: "The best chemistry there is, and it boils off. Good for departures, bad for storage.",
     trajectory: "impulsive",
+    price: 260000, minTech: 4, forSale: true, boilOffPerDay: 0.0016,
   },
   ntr: {
     id: "ntr", name: "Nuclear thermal", era: "nuclear-thermal",
     isp: 850, thrustKN: 330, available: 2045, speculative: false,
     note: "Hydrogen heated by a reactor instead of burned. Twice the exhaust velocity of chemistry; NERVA ran on a test stand in the 1960s.",
     trajectory: "impulsive",
+    price: 1800000, minTech: 6, forSale: true, boilOffPerDay: 0.0013,
   },
   nep: {
     id: "nep", name: "Nuclear electric (ion)", era: "nuclear-electric",
     isp: 4200, thrustKN: 0.24, available: 2070, speculative: false,
     note: "Ten times the exhaust velocity and a thousandth of the thrust. You do not burn — you spiral, for months, and windows stop mattering.",
     trajectory: "spiral",
+    price: 0, minTech: 7, forSale: false, boilOffPerDay: 0,
+    // Not a balance call — a modelling one, and worth stating plainly.
+    notForSale: "An ion drive's whole payoff is that it spirals instead of burning, so launch windows stop "
+      + "mattering. This game's travel model has no windows to stop mattering yet — it flies the ideal Hohmann "
+      + "every time. Sold today it would be a strictly better chemical rocket that also arrives on time, which "
+      + "is the opposite of what an ion drive is. It waits for the phasing model.",
   },
   torch: {
     id: "torch", name: "Fusion torch", era: "fusion",
     isp: 10000, thrustKN: 8000, available: 2200, speculative: true,
     note: "High thrust AND high exhaust velocity together. Days to Mars — and the one piece of genuine science fiction in this game. See massRatio().",
     trajectory: "brachistochrone",
+    price: 0, minTech: 7, forSale: false,  boilOffPerDay: 0,
+    notForSale: "Nobody sells one, because nobody can build one. A 1 g crossing of 1 AU costs about 2,400 km/s, "
+      + "which even at a wildly generous 10,000 s of specific impulse demands a mass ratio near 5×10¹⁰. That is "
+      + "not an engineering gap, it is an impossibility — which is why every story with a torch drive quietly "
+      + "invents new physics. It is in this list so you can see the wall, not buy through it.",
   },
 };
 
@@ -179,6 +208,31 @@ export const acceleration = (drive, tonnes, engines = 1) =>
 /** Which drives a campaign year has unlocked. */
 export const drivesAvailable = (year) =>
   Object.values(DRIVES).filter((d) => year >= d.available);
+
+// ---------------------------------------------------------------------------
+// Boil-off — why a better exhaust velocity is not simply a better engine
+// ---------------------------------------------------------------------------
+
+/**
+ * How much of a tank survives `days` of holding it, under this drive.
+ *
+ * Compounding, not linear: each day loses a fraction of what is STILL there, so
+ * a tank asymptotes toward empty rather than crossing zero. `insulation` is the
+ * factor a cryocooler multiplies the rate by (1 = passive tankage).
+ *
+ * This is the whole reason methalox stays useful after nuclear thermal arrives.
+ * Methane is storable; hydrogen is not, and NERVA-class nuclear thermal runs on
+ * hydrogen. Double the exhaust velocity, and your reserve drains while you coast.
+ */
+export function tankAfter(tonnes, drive, days, insulation = 1) {
+  const rate = (drive?.boilOffPerDay || 0) * insulation;
+  if (rate <= 0 || days <= 0 || tonnes <= 0) return tonnes;
+  return tonnes * Math.pow(1 - rate, days);
+}
+
+/** What boils away over `days` — the same number, said the other way round. */
+export const boilOff = (tonnes, drive, days, insulation = 1) =>
+  tonnes - tankAfter(tonnes, drive, days, insulation);
 
 /**
  * A plain-language verdict on a proposed trip, for the UI.
