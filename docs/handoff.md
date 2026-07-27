@@ -25,19 +25,25 @@ of this file is the detail that block points at.
 > crosses the system), and a roguelike **faction** layer that rolls a different
 > world each seed over the fixed (educational) geography.
 >
-> **What's built and playable** (269 tests, all pure-function + tested): the whole
-> Space Trader floor. Living orrery with a drivable clock, your ship flying real
-> transfer arcs and pausing on arrival; captain creation with 4 skills; markets +
-> cargo + buy/sell with a house spread and cost-basis; **market intel** (see a
-> destination's prices before you fly, freshness gated by light-lag); **system
-> character** (tech level, government, danger) + a **newspaper** driven by
-> factions and market shortages; **save/load** (versioned, migrating, autosave +
-> file); a **Ship Yard** (repair, fit modules, trade up hulls gated by port
-> tech); and the **encounter / risk layer** — trouble in transit, resolved by a
-> pure function, with customs duty on controlled cargo.
+> **What's built and playable** (322 tests, all pure-function + tested): the whole
+> Space Trader floor, and then some. Living orrery with a drivable clock, your ship
+> flying real transfer arcs and pausing on arrival; captain creation with 4 skills;
+> markets + cargo + buy/sell with a house spread and cost-basis; **market intel**
+> (see a destination's prices before you fly, freshness gated by light-lag);
+> **system character** (tech, government, police AND pirates as separate readings)
+> + a **paid newspaper**; **save/load** (versioned to v7, migrating, autosave +
+> file); a **Ship Yard** (repair, weapon/shield/gadget bays, hulls gated by port
+> tech, an **escape pod**); **crew** you hire into a hull's berths who do the job
+> when they're better than you, paid a **daily wage** that makes the calendar
+> cost something; the **encounter / risk layer** — trouble in transit resolved by
+> a pure function, drawn nose to nose; **customs duty** on controlled cargo and
+> **true contraband** (arms, unsafeguarded fissiles) that is legal at a free port
+> and a seizure two weeks away; and the **faction draw wired to prices**, so a
+> colony the newspaper calls desperate actually pays like it.
 >
-> **Do next: reputation as a visible track, then missions.** Standing now MOVES
-> (encounters write it) but nothing surfaces it — see the ranked roadmap below.
+> **Do next: more sites.** Seven is now the constraint on everything else — see
+> "Second pass over the screenshots" below, which explains why, and the ranked
+> roadmap under it.
 >
 > Work the way the existing commits do: small tested increments, honest commit
 > messages that say what was found (not just done), and `npm test` + `npm run
@@ -57,24 +63,27 @@ and deploys. `~/bin/gh` is authed. The front door (`#/`) is the game; the old
 in pure functions, UI thin over them. Key modules:
 - `ephemeris.js` — real JPL Keplerian positions (validated vs oppositions). Horizon 2050.
 - `transfer.js` / `propulsion.js` — Hohmann transfers, windows, the rocket equation, drive eras.
-- `market.js` — scarcity prices that can't run away (mean-revert to equilibrium), `avgPrice` (structural), `equilibriumStock`.
+- `market.js` — scarcity prices that can't run away (mean-revert to equilibrium), `avgPrice` (structural), `equilibriumStock`, and `stockRatio` (where faction mods bend supply).
 - `player.js` — captain, ship, cargo, credits, buy/sell, cost basis, `priceToBuy/Sell`.
-- `tradergame.js` — the game state + the living clock: `newGame`, `launch`, `advanceTime`, `travel` (headless), `refuel`, `shipPosition`, `RATES`.
+- `tradergame.js` — the game state + the living clock: `newGame`, `launch`, `advanceTime`, `travel` (headless), `refuel`, `shipPosition`, `RATES`, `dailyCost`/`tripCost`, `buyPaper`.
 - `intel.js` — market intel: `runPlan`, `cargoValueAt`, `intelFreshness` (light-lag).
-- `factions.js` / `data/factions.js` — the roguelike spawn (`spawnFactions`, `regionDanger`, `factionAt`, `marketMods`).
-- `worldinfo.js` — `systemInfo` (tech/gov/danger/pressure) + `generateNews`.
-- `shipyard.js` — `shipsForSale`, `buyShip`, `fitModule`/`removeModule`, `repairHull`.
-- `save.js` — versioned envelope (**v4**), migration ladder, autosave, file import/export.
+- `factions.js` / `data/factions.js` — the roguelike spawn (`spawnFactions`, `factionAt`, `marketMods`) plus `regionDanger` (netted, for how OFTEN), `pirateThreat` and `patrolStrength` (separate, for WHAT).
+- `worldinfo.js` — `systemInfo` (tech/gov/police/pirates/pressure), `policeLevel`, `generateNews`.
+- `shipyard.js` — `shipsForSale`, `buyShip`, `fitModule`/`removeModule`, `repairHull`, `buyEscapePod`.
+- `crew.js` / `data/crew.js` — `crewForHire` (seeded per port per 40 days), `effectiveSkills` (**the best hand aboard does the job — read this, not `player.skills`**), `dailyWages`, `payWages`.
+- `save.js` — versioned envelope (**v7**), migration ladder, autosave, file import/export.
 - `data/sites.js` — 7 sites with `techLevel`, `owner`; `TECH_LEVELS`, `GOVERNMENTS`
-  (each with `law`, `controls`, `duty`).
-- `data/commodities.js` (+ `CONTROLS` and per-commodity `control`), `data/hulls.js`
-  (+ `minTech`, modules), `data/captain.js`.
-- `trader/` — the UI: `splash`, `create`, `play` (Dock / Yard / Course tabs), `index`.
+  (each with `law`, `controls`, `duty`, `bans`), `controlsCommodity` / `bannedAt`.
+- `data/commodities.js` (+ `CONTROLS`, `CONTRABAND`, per-commodity `control`/`contraband`),
+  `data/hulls.js` (+ `minTech`, `slots: {weapon, shield, gadget}`, modules, `ESCAPE_POD`),
+  `data/captain.js`.
+- `trader/` — the UI: `splash`, `create`, `play` (Dock / Yard / Course tabs), `index`,
+  `ships.jsx` (SVG hull + stranger silhouettes for the encounter face-off).
 - `data/encounters.js` — the encounter TABLE, the `RECORDS` ladder, salvage finds.
 - `encounters.js` — **the resolver**: `resolve(encounter, choice, context) → outcome`,
-  plus `rollLegEvent`, `applyOutcome`, `resolveEncounter`, `controlledCargo`.
+  plus `rollLegEvent`, `applyOutcome`, `resolveEncounter`, `controlledCargo`, `illegalCargo`.
 
-**Test the whole thing:** `npm test` (269 passing). **Run it:** the browser
+**Test the whole thing:** `npm test` (322 passing). **Run it:** the browser
 preview via `.claude/launch.json` server `solbound-dev` (auto-port), or `npm run dev`.
 
 ## How the encounter layer works (read before touching it)
@@ -107,11 +116,86 @@ preview via `.claude/launch.json` server `solbound-dev` (auto-port), or `npm run
   it. `player.reputation` is a vestigial empty field — don't start a second source
   of truth in it.
 
-## What the Space Trader screenshots still have that we don't
+## Second pass over the screenshots (2026-07-26, after items 1–7 landed)
 
-Derived by re-reading all 26 images in `Space Trader/` (2026-07-26). Ranked by
-what each would actually add, not by how easy it is. Everything above this line
-is already built.
+All seven items from the first pass are built. Re-reading the images against the
+game as it now stands, plus what building them exposed. **Ranked by what would
+actually change the game**, which is not the same order as "what's left in the
+screenshots".
+
+### 1. THE MAP IS TOO SMALL — and this is now the biggest problem
+
+Space Trader has ~120 systems and a Short Range Chart you navigate by. We have
+**seven sites**, and every system we have just built pushes harder on that:
+
+- `mods.produces` is unreachable, because with seven sites every one of them
+  already trades everything except precision instruments. A faction can't bring
+  anything new to a port when the port already sells it all.
+- Contraband has exactly one buy-side (Ceres, Psyche) and two sell-sides. That's
+  one route, not a trade.
+- Crew hiring re-rolls every 40 days per port, but there are only seven bars.
+- Tech level gates hulls, and four of seven sites are tech 3 or below.
+
+Everything downstream — missions, rivals, reputation, prospecting — gets thinner
+the fewer places there are to do it. **More sites is the single highest-leverage
+thing left**, and it is content work rather than systems work: each new site
+needs a real physical reason to exist (`why`), a produces/consumes list, a tech
+level and an owner. Candidates that are real places with real reasons: Titan
+(nitrogen and methane), Europa (ocean, and lethal radiation), Ganymede (the only
+moon with a magnetic field), Vesta, Deimos, Mercury's polar cold traps, a Venus
+cloud-deck station, an Earth–Sun L1 or lunar L2 relay, Enceladus.
+
+### 2. Reputation is still invisible — and now it MOVES
+
+Still item 1 on the old roadmap, and more urgent than before: encounters now
+write standing in five different places (fight, bribe, comply, help, ignore) and
+the only place a player ever sees a number is inside the encounter panel that
+changed it. There is no screen that says who likes you, what it took, or what it
+buys. Everything needed is in `game.factions[].standing`.
+
+### 3. Waiting is impossible, and wages just made that a real gap
+
+`wait(game, days)` exists in the sim and has no UI. Before wages there was no
+reason to want it; now the clock costs money, markets drift, and a faction crisis
+eases and returns — so "sit here three weeks for the shortage to bite" is a
+strategy the player can reason about and cannot express. It is one button.
+
+### 4. A range readout ("you have fuel to fly 14 parsecs")
+
+Their Ship Yard leads with how far you can go. We make the player open the Course
+tab and read six rows to find out. The data is all in `travelCost`; this is a
+one-line summary of "with this hold, you can reach X of 7 ports" on the yard and
+dock screens — and it would make the cargo-vs-range trade visible at the moment
+the player is deciding how much to buy.
+
+### 5. Goods a port does NOT trade should still be listed
+
+Space Trader lists every commodity always, with `---` or "not sold" against the
+ones this system has no market for. We omit those rows entirely, which hides
+information that teaches: seeing "Reactor components — not sold" at Shackleton is
+how you learn what a place can't get.
+
+### 6. System size, and "special resources unknown"
+
+Two small ideas from their System Info. Size is a word we could derive from
+population. The better one is **"unknown"**: their price list won't tell you a
+system's special resources until you have been there. We have a light-lag
+freshness model that does this for prices; extending it to "you have never
+visited, so this is guesswork" would cost nothing and would make first visits
+matter.
+
+### Deliberately still not taking
+
+Difficulty settings (our difficulty is the rocket equation and the faction draw),
+the parsec range model (delta-v is the point), and their Tips system (our notes
+are inline, where the decision is).
+
+---
+
+## First pass: what the screenshots had that we didn't — ALL BUILT
+
+Kept for the record. Derived from all 26 images on 2026-07-26; every item below
+shipped in the three commits that followed.
 
 1. **The escape pod.** The Ship Yard screen reads *"You need 2000 cr. for an
    escape pod."* That is Space Trader's whole answer to death, and it is better
@@ -153,24 +237,31 @@ Deliberately NOT taking from them: difficulty settings (our difficulty is the
 rocket equation and the faction draw), and the parsec-based "range" model (delta-v
 is the whole point of this game).
 
-## The roadmap after encounters (from the Space Trader screenshot analysis)
+## The roadmap, as it now stands
 
-Ranked, now that the risk layer has landed:
-1. **Reputation as a visible track** — per-faction `standing` exists AND now moves
-   (encounters write it), but nothing shows it. Surface who likes you and what it
-   unlocks. This is the cheapest big win on the list.
-2. **Missions / contracts** — a mission board (freight, passengers, survey,
-   bounty). Factions already have `offers`. Gives directed goals and income.
-3. **Wire faction market modifiers** — `factions.marketMods()` exists but isn't
-   applied to prices yet; doing so makes a blockade/crisis actually spike prices,
-   deepening "why go far."
+Merging the second-pass findings above with what was already queued. Ranked:
+
+1. **More sites.** See second pass §1 — the map is now the constraint on every
+   other system. Content work, and the highest leverage thing left.
+2. **Reputation as a visible track** — it moves in five places and shows nowhere.
+3. **Missions / contracts** — a mission board (freight, passengers, survey,
+   bounty). Factions already have `offers`. Gives directed goals and income, and
+   it is the thing that would make standing matter.
 4. **Prospecting/mining** — the survey-mode camera as the tech tree: "you can't
-   build where you haven't surveyed." Mining rig + survey lab modules exist.
-5. **Art** — ship sprites per hull, a captain portrait, the encounter face-off
-   screen. Pure polish; independent of systems.
-6. **Deferred infra debt:** the 2050 ephemeris horizon (swap to Standish's
+   build where you haven't surveyed." Mining rig + survey lab modules exist and
+   still do nothing.
+5. **The small ones from the second pass** — a wait button (§3), a range readout
+   (§4), "not sold" rows (§5), unvisited-system fog (§6). All cheap, all
+   independent.
+6. **Art beyond the silhouettes** — a captain portrait, per-faction colours. The
+   encounter face-off is done.
+7. **Deferred infra debt:** the 2050 ephemeris horizon (swap to Standish's
    3000 BC–3000 AD tables for a multi-century campaign), and the invented
    `DELTA_V_FROM_LEO` graph (source a real one).
+
+**Done since this list was last written:** the encounter/risk layer, contraband
+and customs, the escape pod, police/pirates split, slot kinds, crew and wages,
+faction market modifiers wired to prices, the paid newspaper, encounter art.
 
 ## Design decisions locked (don't relitigate)
 
@@ -192,11 +283,21 @@ Ranked, now that the risk layer has landed:
 - **Duty rates** (3–6% of controlled-cargo value) are a first guess. On a 2 t
   electronics run to Jezero the duty came to ~$58k against ~$1.7M of cargo, which
   felt like a real but survivable toll. Untested at freighter scale.
-- **Whether death should be a hard end.** Losing the ship currently ends the run
-  and clears the autosave. The screenshots answer this better than either option
-  I'd framed: Space Trader sells an **escape pod** for 2000 cr, so survival is a
-  purchase the player either made or didn't. Build that (item 1 above) and the
-  question resolves itself.
+- **Wages versus early capital — the one to watch.** A single hire at $320/day
+  turns a 9-month Mars run into $86,171 of wages, which on a fresh captain's
+  purse is more than the cargo. That is either the best pressure in the game (a
+  crew is a commitment to short routes until you're rich) or a trap that makes
+  hiring a mistake before the mid-game. It wants a real playthrough to tell.
+  Wages are per-crew in `data/crew.js`; the cheapest hire is Prakash at $130.
+- **Escape pod price ($35,000).** Meant to sting on a starter purse and be
+  beneath notice later. Untested against a real death — I have only unit-tested
+  the payoff, never lost a ship in play.
+- **Paper price** (150 + 90 × tech, so $780 at Gateway and $330 at Callisto).
+  Trivial next to any cargo; the point is the act, not the cost. If it reads as
+  pure tax, make it free at your home port or fold it into a relay upgrade.
+- **The Courier gained a bay** (2 undifferentiated → 1 weapon + 2 gadget). A
+  slightly more generous starter than before; watch whether the first hour is now
+  too comfortable.
 - **Contraband spread.** Fissiles run $3.68M/t at Ceres (free port) against
   $11.6M/t where they're banned — 3.15x, against a fine of ~87% of value plus
   losing the cargo. Arms carry the same 3.15x at a tenth the stake, which makes
