@@ -41,9 +41,17 @@ of this file is the detail that block points at.
 > and a seizure two weeks away; and the **faction draw wired to prices**, so a
 > colony the newspaper calls desperate actually pays like it.
 >
-> **Do next: more sites.** Seven is now the constraint on everything else — see
-> "Second pass over the screenshots" below, which explains why, and the ranked
-> roadmap under it.
+> **The world is DRAWN now.** docs/site-atlas.md's census became data: ~40 real
+> places (data/places.js), ~27 installations, ~22 operators, and
+> worldgen.spawnSites(seed) draws 9–13 sites around the immortal core seven —
+> 16–20 ports per run, different every seed, all real geography. Sites live ON
+> the game (game.sites, in the save). Plus: SOLAR CONJUNCTION as real geometry
+> (intel blacks out ~2 weeks when the Sun stands between you and a system —
+> and the trip stays flyable, as a bet), and the ATLAS TAB — every census place
+> revealed by docking, or a whole system at once by arriving with a survey lab.
+>
+> **Do next: reputation as a visible track, then missions/contracts** — both
+> now have a real map to live on. See the ranked roadmap below.
 >
 > Work the way the existing commits do: small tested increments, honest commit
 > messages that say what was found (not just done), and `npm test` + `npm run
@@ -83,7 +91,22 @@ in pure functions, UI thin over them. Key modules:
 - `encounters.js` — **the resolver**: `resolve(encounter, choice, context) → outcome`,
   plus `rollLegEvent`, `applyOutcome`, `resolveEncounter`, `controlledCargo`, `illegalCargo`.
 
-**Test the whole thing:** `npm test` (322 passing). **Run it:** the browser
+**New since the module map below was written:** `data/places.js` (the census as
+data), `data/installations.js`, `data/operators.js` (now THE government
+registry — GOVERNMENTS is an alias), `worldgen.js` (`spawnSites`, `deriveSite`),
+`atlas.js` (`atlasFor`, `isRevealed`, `atlasProgress`), `intel.occluded()` (the
+conjunction), and `game.sites`/`game.surveyed` in the state. Save is **v8**.
+Key invariants, all tested (test/worldgen.test.js): core seven in every world
+verbatim; same seed → same world; no implausible pairings (no farms in the
+dark, no families on lethal ground, no syndicate customs house); an inner and
+a far site guaranteed every draw; conjunction is one contiguous ~2-week season
+(seed 42: 18 days, Sep 2036) that blinds intel and never blocks travel.
+**Deferred with intent:** the Aldrin cycler stays atlas-only — a moving port
+needs phasing mechanics the travel model doesn't have (it uses ideal Hohmann,
+no windows), so "catch it or miss it" can't be honest yet. Survey MISSIONS
+(directed contracts) wait for the mission board; the lab-sweep reveal is v1.
+
+**Test the whole thing:** `npm test` (348 passing). **Run it:** the browser
 preview via `.claude/launch.json` server `solbound-dev` (auto-port), or `npm run dev`.
 
 ## How the encounter layer works (read before touching it)
