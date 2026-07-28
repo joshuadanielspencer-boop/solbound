@@ -6,9 +6,13 @@
 //
 // TWO THINGS THAT MATTER MORE THAN THE ANIMATION:
 //
-//   IT IS SKIPPABLE. A five-second unskippable card is charming once and an
-//   obstacle every time after — and during development this screen gets loaded
-//   dozens of times an hour. Any key, any click, any tap ends it immediately.
+//   IT IS SKIPPABLE, AND IT NO LONGER SAYS SO. A five-second unskippable card is
+//   charming once and an obstacle every time after — and during development this
+//   screen gets loaded dozens of times an hour. Any key, any click, any tap ends
+//   it immediately. The "press anything to skip" line that used to say so is
+//   gone: a studio card is five seconds of somebody's name, and printing escape
+//   instructions under it tells the player the next five seconds are something
+//   to be endured. The behaviour stays; the apology does not.
 //
 //   IT RESPECTS prefers-reduced-motion. Someone who has asked their system for
 //   less movement gets the card held still and short rather than a sequence of
@@ -73,7 +77,6 @@ export default function Intro({ onDone }) {
         alt=""
         style={{ ...S.mark, opacity, transition: `opacity ${fade}ms ease-in-out` }}
       />
-      <div style={S.skip}>press anything to skip</div>
     </div>
   );
 }
@@ -86,8 +89,4 @@ const S = {
     display: "grid", placeItems: "center", cursor: "pointer",
   },
   mark: { width: "min(52vw, 460px)", height: "auto", display: "block" },
-  skip: {
-    position: "absolute", bottom: 28, left: 0, right: 0, textAlign: "center",
-    fontSize: 11, letterSpacing: 1.4, textTransform: "uppercase", color: "#2A2A2A",
-  },
 };
