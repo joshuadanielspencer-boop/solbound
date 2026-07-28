@@ -24,6 +24,8 @@ import { hireCrew, dismissCrew } from "../crew.js";
 import { FaceOff } from "./ships.jsx";
 import { SurfaceView, SurfacePanel } from "./surface.jsx";
 import { hasSurfaceMap } from "../surface.js";
+import { build as buildWorks } from "../industry.js";
+import { PROCESS_BY_ID } from "../data/industry.js";
 import { useSfx } from "./sfx.jsx";
 import Panel, { SystemAtlas } from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
@@ -161,6 +163,11 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
         if (rate <= 0) return g;
         const r = advanceTime(g, g.t + rate * (dt / 1000) * DAY);
         if (r.arrived) queueMicrotask(() => { flash(`Arrived at ${r.arrived}.`); setMode("dock"); });
+        // Something you paid for months ago just started working. The one event
+        // in the game that arrives entirely on its own.
+        for (const w of r.completed || []) {
+          queueMicrotask(() => flash(`${PROCESS_BY_ID[w.processId]?.name} is online at ${siteOf(g, w.siteId)?.name}.`));
+        }
         if (r.encounter) queueMicrotask(() => flash(r.encounter, "bad"));
         if (r.quit?.length) queueMicrotask(() => flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad"));
         return r.game;
@@ -293,6 +300,16 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     if (r.quit?.length) flash(`${r.quit.map((c) => c.name).join(" and ")} left the ship — you ran out of wages.`, "bad");
   };
   const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
+  // Committing to a plant. The money goes now and the thing arrives in months,
+  // which is the point: it is the first purchase in the game you cannot use on
+  // the same day you make it.
+  const doBuild = (siteId, processId) => {
+    const r = buildWorks(game, siteId, processId);
+    if (r.error) return flash(r.reason || r.error, "bad");
+    setGame(r.game);
+    const p = PROCESS_BY_ID[processId];
+    flash(`${p.name} begun at ${siteOf(game, siteId)?.name}. ${p.buildDays} days, and ${money(p.build)} gone.`);
+  };
 
   // Picking a port, from whichever level of the map you are on. The map picks
   // the trip; the course plotter prices it. Shared so the system view and the
@@ -309,6 +326,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     buy: doBuy, sell: doSell, refuel: doRefuel, wait: doWait, buyPaper: doBuyPaper,
     buyShip: doBuyShip, fit: doFit, remove: doRemove, repair: doRepair, buyPod: doBuyPod,
     hire: doHire, dismiss: doPayOff, buyDrive: doBuyDrive, launch: doLaunch,
+    build: doBuild,
   };
 
   // Download the current game as a file — survives a cleared cache and moves

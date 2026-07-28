@@ -38,6 +38,9 @@ import { newPlayer } from "../src/player.js";
 import { SYSTEMS } from "../src/data/bodies.js";
 import { MAPPED } from "../src/surface.js";
 import { listSaves, deleteSlot, MAX_SLOTS } from "../src/save.js";
+import { build as buildWorks } from "../src/industry.js";
+
+const DAY = 86400000;
 
 // React needs telling it is inside a test, or every act() warns.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -139,7 +142,7 @@ describe("the game mounts and stays mounted", () => {
     // one and back out, which is the path a player takes in their first minute.
     render(playScreen(freshGame()));
     for (const [tab, entries] of [
-      [/Dock/, [/Market/, /Propellant/, /Wait here/, /This port/, /Ledger/]],
+      [/Dock/, [/Market/, /Propellant/, /Wait here/, /This port/, /Ledger/, /Build here/]],
       [/Yard/, [/drive/i, /module/i, /crew|hire/i, /ship/i]],
     ]) {
       click(byText(tab));
@@ -153,6 +156,32 @@ describe("the game mounts and stays mounted", () => {
         expectQuiet();
       }
     }
+  });
+});
+
+describe("the industry screen", () => {
+  it("opens with nothing built, and lists what could be", () => {
+    render(playScreen(freshGame()));
+    click(byText(/Build here/));
+    expect(text()).toContain("Power");
+    expect(text()).toContain("Solar farm");
+    // Gateway is in Earth orbit with no resources under it, so the extraction
+    // rows must all be refusing — and saying why, in a sentence.
+    expect(text()).toMatch(/There is no|Needs a more developed|Costs/);
+  });
+
+  it("opens with plants running, mid-build and throttled", () => {
+    // The three states a plant can be in, all on screen at once. This is the
+    // render path that had every chance to divide by zero.
+    const g0 = freshGame();
+    const rich = { ...g0, player: { ...g0.player, credits: 50_000_000 } };
+    let g = buildWorks(rich, "leo", "solar-farm").game;
+    g = { ...g, t: g.t + 200 * DAY };
+    g = buildWorks(g, "leo", "greenhouse").game;      // still building
+    render(playScreen(g));
+    click(byText(/Build here/));
+    expect(text()).toContain("Yours here");
+    expect(text()).toMatch(/day.? to go/);
   });
 });
 

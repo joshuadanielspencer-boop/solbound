@@ -49,6 +49,11 @@ import { systemInfo, generateNews } from "../worldinfo.js";
 import { fittedStats, MODULE_BY_ID, HULL_BY_ID, ESCAPE_POD, slotUsage } from "../data/hulls.js";
 import { shipsForSale, modulesForSale, tradeInValue, repairCost, drivesForSale, driveTradeIn } from "../shipyard.js";
 import { crewForHire, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
+import {
+  worksAt, buildOptions, powerAt, powerFactor, dailyFlows, daysLeft, isOnline,
+  importDependency, umbilicalReport,
+} from "../industry.js";
+import { PROCESS_BY_ID, KINDS, powerSupplied } from "../data/industry.js";
 import { CREW_BY_ID, berthsFor } from "../data/crew.js";
 import { SKILLS } from "../data/captain.js";
 import { controlledCargo, illegalCargo } from "../encounters.js";
@@ -94,12 +99,15 @@ function Dock({ game, screen, go, back, actions }) {
   const news = generateNews(game);
   const paid = game.paperAt === p.at;
   const range = rangeReport(game);
+  const works = worksAt(game, p.at);
+  const dep = importDependency(game, p.at);
 
   if (screen === "market") return <MarketScreen game={game} rows={rows} back={back} actions={actions} />;
   if (screen === "fuel") return <FuelScreen game={game} back={back} actions={actions} />;
   if (screen === "wait") return <WaitScreen game={game} back={back} actions={actions} />;
   if (screen === "port") return <PortScreen game={game} back={back} />;
   if (screen === "news") return <NewsScreen game={game} back={back} actions={actions} />;
+  if (screen === "industry") return <IndustryScreen game={game} back={back} actions={actions} />;
 
   // How many goods here are actually worth loading — the one number that
   // answers "is there anything for me at this port".
@@ -135,6 +143,17 @@ function Dock({ game, screen, go, back, actions }) {
       <NavButton icon="🏛" label="This port" onClick={() => go("port")}
         note="Who runs it, how it is policed, why it is here"
         value={info?.pirateWord ? `☠ ${info.pirateWord}` : undefined} />
+      {/* THE CAMPAIGN'S WAY IN. It sits under the market rather than beside it
+          because that is the order of the game: you trade to afford to build,
+          and you build so that the trade stops being necessary. The value on the
+          row is the umbilical, not the money — the only number in the game that
+          measures the victory condition instead of the balance. */}
+      <NavButton icon="🏗" label="Build here" onClick={() => go("industry")}
+        note={works.length
+          ? `${works.filter((w) => isOnline(w, game.t)).length} running · ${works.filter((w) => !isOnline(w, game.t)).length} building`
+          : "Cure a shortage instead of supplying it"}
+        value={dep ? `imports ${dep.imported.length} of ${dep.needs}` : undefined}
+        tone={dep && dep.cured ? "ok" : undefined} />
       <NavButton icon="📰" label={news.paper} onClick={() => go("news")}
         note={paid ? "Read" : `${news.items.length} ${news.items.length === 1 ? "story" : "stories"} on the wire`}
         value={paid ? "read" : money(paperPrice(game))} tone={paid ? "ok" : "gold"} />
@@ -308,6 +327,117 @@ function PortScreen({ game, back }) {
       <Footnote>{info.pressure}</Footnote>
     </Screen>
   );
+}
+
+// ---------------------------------------------------------------------------
+// INDUSTRY — the campaign's screen
+//
+// Everything else in the panel helps you decide what to CARRY. This is the one
+// that decides what a place will stop needing carried, which is design.md §5's
+// whole argument and the only screen whose success is measured by its own
+// income going down.
+//
+// The order is deliberate: what you already have here, then the power budget
+// (because nothing runs without it and it is the thing players will get wrong
+// first), then what you could build, grouped by rung of the ladder.
+// ---------------------------------------------------------------------------
+function IndustryScreen({ game, back, actions }) {
+  const siteId = game.player.at;
+  const site = siteOf(game, siteId);
+  const works = worksAt(game, siteId);
+  const { supply, draw, light } = powerAt(game, siteId);
+  const factor = powerFactor(game, siteId);
+  const dep = importDependency(game, siteId);
+  const flows = dailyFlows(game, siteId);
+  const options = buildOptions(game, siteId);
+  const campaign = umbilicalReport(game);
+
+  return (
+    <Screen title="Build here" onBack={back}
+      hint={`${site.name} · sunlight ${light >= 0.1 ? `${light.toFixed(2)}×` : `${(light * 100).toFixed(1)}%`} of Earth's`}>
+      <StatStrip items={[
+        { label: "Power", value: `${supply} / ${draw} kW`,
+          tone: draw > supply ? "hot" : supply ? "ok" : undefined,
+          hint: "Generated against drawn. Short of power, everything here throttles together." },
+        { label: "Running at", value: draw ? `${Math.round(factor * 100)}%` : "—",
+          tone: draw && factor < 1 ? "hot" : undefined },
+        { label: "Imports", value: dep ? `${dep.imported.length} of ${dep.needs}` : "—",
+          tone: dep && dep.cured ? "ok" : undefined,
+          hint: "How much of what this port needs still has to be shipped in. Getting this to zero is the campaign." },
+      ]} />
+
+      {works.length > 0 && (
+        <>
+          <div style={ST.deadHead}>Yours here</div>
+          {works.map((w) => {
+            const p = PROCESS_BY_ID[w.processId];
+            const online = isOnline(w, game.t);
+            const left = daysLeft(w, game.t);
+            return (
+              <InfoRow key={w.id} info={p.why}>
+                <RowMain name={p.name}
+                  tags={online ? (factor < 1 ? [<Tag key="t" tone="hot">throttled</Tag>] : []) : [<Tag key="b">building</Tag>]}
+                  sub={online
+                    ? describeFlow(p, factor)
+                    : `${left} day${left === 1 ? "" : "s"} to go`} />
+                <RowValue top={`${p.crew} crew`} bottom={p.power ? `${p.power} kW` : `+${Math.round(powerSupplied(p, light))} kW`}
+                  bottomTone={p.power ? undefined : "ok"} />
+              </InfoRow>
+            );
+          })}
+          {(flows.outputs && Object.keys(flows.outputs).length > 0) && (
+            <Footnote>
+              Output is sold into this port's own market at this port's own price — so as the
+              shortage eases, the money falls. That is not a fault in the plant. Curing the
+              shortage is what you bought.
+            </Footnote>
+          )}
+        </>
+      )}
+
+      {KINDS.map((kind) => {
+        const rows = options.filter((o) => o.process.kind === kind.id
+          && !works.some((w) => w.processId === o.process.id));
+        if (!rows.length) return null;
+        return (
+          <div key={kind.id}>
+            <div style={ST.deadHead}>{kind.name} — {kind.note}</div>
+            {rows.map(({ process, ok, reason, warning }) => (
+              <InfoRow key={process.id} info={`${process.why}\n\n${process.teaches}`}
+                disabled={!ok}
+                onActivate={ok ? () => actions.build(siteId, process.id) : undefined}>
+                <RowMain name={process.name}
+                  tags={warning ? [<Tag key="w" tone="hot">no power for it yet</Tag>] : []}
+                  sub={ok ? `${describeFlow(process, 1)} · ${process.buildDays} days to build` : reason} />
+                <RowValue top={money(process.build)} tone={ok ? "gold" : undefined}
+                  bottom={process.power ? `${process.power} kW` : `+${Math.round(powerSupplied(process, light))} kW`} />
+              </InfoRow>
+            ))}
+          </div>
+        );
+      })}
+
+      {campaign.cured > 0 && (
+        <Footnote>
+          Across the whole map you have cured <b>{campaign.cured}</b> of {campaign.links} supply
+          links, at {campaign.bySite.length} port{campaign.bySite.length === 1 ? "" : "s"}. That
+          number, and not your balance, is what the campaign is for.
+        </Footnote>
+      )}
+    </Screen>
+  );
+}
+
+/** "12 t ice → 11.4 t propellant a day", or "makes 14 t ice a day". */
+function describeFlow(p, factor = 1) {
+  const say = (o) => Object.entries(o)
+    .map(([id, q]) => `${(q * factor).toFixed(q * factor < 1 ? 2 : 1)} t ${COMMODITY_BY_ID[id]?.name.toLowerCase() || id}`)
+    .join(" + ");
+  const ins = say(p.inputs || {}), outs = say(p.outputs || {});
+  if (!outs && p.providesAt1AU) return "generates power";
+  if (!outs && p.provides) return "generates power";
+  if (!ins) return `makes ${outs} a day`;
+  return `${ins} → ${outs} a day`;
 }
 
 function NewsScreen({ game, back, actions }) {

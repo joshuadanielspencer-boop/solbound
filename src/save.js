@@ -27,7 +27,7 @@ import { initialMarkets } from "./market.js";
 import { marketMods } from "./factions.js";
 import { CORE_SITES } from "./data/sites.js";
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -222,6 +222,23 @@ const MIGRATIONS = {
     const s = save.state;
     if (s && !Array.isArray(s.repLog)) s.repLog = [];
     save.version = 9;
+    return save;
+  },
+  // v9 → v10: production chains. An older save has built nothing, which is the
+  // honest reading and needs no reconstruction — but the markets it carries have
+  // no `mods.owned` either, and stockRatio now reads that field. Defaulting it to
+  // an empty array rather than leaving it undefined keeps the pricing path free
+  // of optional chaining it would otherwise need for one legacy shape.
+  9: (save) => {
+    const s = save.state;
+    if (s) {
+      if (!Array.isArray(s.industry)) s.industry = [];
+      for (const m of Object.values(s.markets || {})) {
+        if (!m.mods) m.mods = {};
+        if (!Array.isArray(m.mods.owned)) m.mods.owned = [];
+      }
+    }
+    save.version = 10;
     return save;
   },
 };

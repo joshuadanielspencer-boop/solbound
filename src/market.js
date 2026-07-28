@@ -301,9 +301,16 @@ function stockRatio(site, c, mods = {}) {
   // Mars grows its own food right up until the day the chain breaks.
   if ((mods.crisis || []).includes(c.id)) return CRISIS;
 
+  // `mods.owned` is the PLAYER's industry, and it enters here rather than
+  // anywhere more elaborate on purpose: a plant they built has exactly the same
+  // effect on a market as a faction moving in or a geological deposit, because
+  // economically it IS the same thing. It is also what makes a plant a CURE
+  // rather than a delivery — this moves the equilibrium that advanceMarkets
+  // drags the stock back toward, so the shortage does not simply return.
   const produces = site.produces.includes(c.id)
     || manufactures(site, c)
-    || (mods.produces || []).includes(c.id);
+    || (mods.produces || []).includes(c.id)
+    || (mods.owned || []).includes(c.id);
   let r = produces ? SURPLUS
     : bannedAt(site, c) ? BANNED
       : site.consumes.includes(c.id) ? IMPORTING : 1;

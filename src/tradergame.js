@@ -29,6 +29,7 @@ import { heliocentric } from "./ephemeris.js";
 import { fittedStats } from "./data/hulls.js";
 import { cargoUsed, buyGoods as playerBuy, sellGoods as playerSell, buyPrice } from "./player.js";
 import { initialMarkets, priceAt, advanceMarkets } from "./market.js";
+import { tickIndustry, industryWages } from "./industry.js";
 import { spawnFactions, worldBrief, marketMods } from "./factions.js";
 import { spawnSites } from "./worldgen.js";
 import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
@@ -96,6 +97,9 @@ export function newGame(player, seed = 1) {
     player,
     sites,
     surveyed: [],                               // systems swept by a survey lab (atlas reveals)
+    // What the player has BUILT. The campaign's spine (design.md §5): a cargo
+    // eases a shortage, a plant cures one. See src/industry.js.
+    industry: [],
     markets: initialMarkets(mods, sites),
     t: START_DATE,
     seed,
@@ -144,7 +148,11 @@ const systemOf = (game, siteId) => siteOf(game, siteId)?.system;
  * all cost nothing. A wage bill running every day makes the calendar a resource,
  * which is what a game about eight-month transfers needs it to be.
  */
-export const dailyCost = (game) => dailyWages(game.player);
+// The daily bill: the ship's crew, plus every hand at every plant you own or are
+// building. Industry is not free to hold — that is what stops a plant being a
+// button you press once and forget, and what makes a chain you cannot feed an
+// actual mistake.
+export const dailyCost = (game) => dailyWages(game.player) + industryWages(game);
 export const tripCost = (game, days) => Math.round(dailyCost(game) * days);
 
 export function travelCost(game, destId) {
@@ -291,11 +299,23 @@ function passTime(game, days) {
   const drive = DRIVES[w.player.ship.drive] || DRIVES.methalox;
   const stats = fittedStats(w.player.ship.hull, w.player.ship.modules);
   const kept = tankAfter(w.player.ship.fuelTonnes, drive, days, stats?.cryo ? CRYO_FACTOR : 1);
+  const player = kept === w.player.ship.fuelTonnes
+    ? w.player
+    : { ...w.player, ship: { ...w.player.ship, fuelTonnes: Math.max(0, kept) } };
+
+  // THE WORKS RUN BEFORE THE MARKETS DRIFT, and the order is the mechanism. A
+  // plant puts its output into the local stock; `advanceMarkets` then pulls that
+  // stock toward the site's equilibrium — an equilibrium the plant has itself
+  // moved, because industry.js writes `mods.owned`. Run the other way round, the
+  // day's production would be half-reverted before anyone could notice it, and a
+  // cure would read as a delivery.
+  const worked = tickIndustry({ ...game, player }, days);
+
   return {
-    player: kept === w.player.ship.fuelTonnes
-      ? w.player
-      : { ...w.player, ship: { ...w.player.ship, fuelTonnes: Math.max(0, kept) } },
-    markets: advanceMarkets(game.markets, days),
+    player: worked.game.player,
+    markets: advanceMarkets(worked.game.markets, days),
+    industryEarned: worked.earned,
+    completed: worked.completed,
     quit: w.quit,
   };
 }
@@ -373,7 +393,13 @@ export function advanceTime(game, toT) {
   // Otherwise just roll time forward, drift the markets, and pay the crew.
   const days = (toT - game.t) / DAY;
   const p = passTime(game, days);
-  return { game: { ...game, t: toT, markets: p.markets, player: p.player }, quit: p.quit };
+  return {
+    game: { ...game, t: toT, markets: p.markets, player: p.player },
+    quit: p.quit,
+    // A plant coming online is worth interrupting for — it is months of calendar
+    // and a large sum of money arriving at a moment the player did not choose.
+    completed: p.completed,
+  };
 }
 
 /** Where the ship is on its arc right now, heliocentric — or null if docked. */
@@ -550,6 +576,7 @@ export function wait(game, days) {
       player: p.player,      // waiting in port is not free once you have a crew
     },
     quit: p.quit,
+    completed: p.completed,
   };
 }
 
