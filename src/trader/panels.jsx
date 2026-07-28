@@ -33,7 +33,7 @@
 
 import { useState } from "react";
 import {
-  Screen, NavButton, InfoRow, RowMain, RowValue, Tag, StatStrip, PrimaryButton, Footnote,
+  Screen, NavButton, InfoRow, RowMain, RowValue, PricePair, Tag, StatStrip, PrimaryButton, Footnote,
   money, fmtDate, fmtDur,
 } from "./ui.jsx";
 import { siteOf, techOf, govOf, TECH_LEVELS } from "../data/sites.js";
@@ -158,11 +158,15 @@ function MarketScreen({ game, rows, back, actions }) {
                   {r.banned && <Tag tone="hot">illegal here</Tag>}
                   {r.contraband && !r.banned && <Tag tone="ok">legal here</Tag>}
                   {held > 0 && <Tag tone="gold">{held} t aboard</Tag>}
+                  {held > 0 && cost > 0 && (
+                    <Tag tone={sp >= cost ? "ok" : "hot"}>
+                      {sp >= cost ? "+" : "−"}{money(Math.abs(sp - cost))}/t
+                    </Tag>
+                  )}
                 </>}
                 sub={r.state}
               />
-              <RowValue top={money(bp)} bottom={money(sp)}
-                bottomTone={held > 0 && cost > 0 ? (sp >= cost ? "ok" : "hot") : undefined} />
+              <PricePair buy={money(bp)} sell={money(sp)} />
             </InfoRow>
             {on && <TradeBar row={r} held={held} bp={bp} sp={sp} paid={cost}
               free={cargoFree(p)} credits={p.credits} actions={actions} />}

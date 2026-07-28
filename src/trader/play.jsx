@@ -1055,17 +1055,31 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
 /** A port on the system map. Clicking one selects it as your destination and
  *  opens the course plotter — the map picks the trip, the panel prices it. */
 function SitePin({ site, x, y, here, sel, onPick }) {
-  const w = 108, h = 26;
+  // THE PIN FITS THE NAME, rather than the name being cut to fit the pin. It was
+  // a fixed 108 units wide with everything past fourteen characters replaced by
+  // an ellipsis, which turned "Tranquillitatis lava tube Archive" and "Sunward
+  // Watch (Sun-Earth L1) Post" into the same unreadable stub.
+  //
+  // SVG cannot measure text without rendering it, so the width is estimated from
+  // the character count. 5.9 units per character at 11px is a little generous
+  // for this typeface, which is the right direction to be wrong in: a pin
+  // slightly too wide looks deliberate, one slightly too narrow clips.
+  const label = `${here ? "⚓ " : ""}${site.name}`;
+  const h = 26;
+  const w = Math.max(96, label.length * 5.9 + 20);
+  // And it is kept inside the frame: a long name on a body near the edge would
+  // otherwise hang off the board entirely.
+  const cx = Math.min(VBW - w / 2 - 8, Math.max(w / 2 + 8, x));
   return (
     <g role="button" tabIndex={0} style={{ cursor: "pointer" }}
       aria-label={`${site.name}${here ? ", where you are docked" : ""}. Plot a course.`}
       onClick={() => onPick(site.id)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(site.id); } }}>
-      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={7}
+      <rect x={cx - w / 2} y={y - h / 2} width={w} height={h} rx={7}
         fill={here ? "rgba(242,180,65,0.18)" : "var(--panel-2)"}
         stroke={here ? "var(--gold)" : sel ? "var(--gold)" : "var(--line)"} strokeWidth={sel || here ? 2 : 1} />
-      <text x={x} y={y + 4} style={{ ...S.pin, fill: here ? "var(--gold)" : "#CDD5E4", fontSize: 11 }}>
-        {here ? "⚓ " : ""}{site.name.length > 15 ? site.name.slice(0, 14) + "…" : site.name}
+      <text x={cx} y={y + 4} style={{ ...S.pin, fill: here ? "var(--gold)" : "#CDD5E4", fontSize: 11 }}>
+        {label}
       </text>
     </g>
   );

@@ -45,11 +45,27 @@ export const START_DATE = Date.UTC(2035, 0, 1);
  * can pause, hurry, or skip. A cislunar hop is days; a Mars run is months; the
  * top speed makes even a Jupiter transfer watchable rather than a chore.
  */
+// SLOWED, AND RE-SPACED. The default was 4 days a second, which sounds gentle
+// until you notice what it does to the MAP: Earth laps the Sun in 91 seconds and
+// Mars in under three minutes, so the planets sprint while the ship — the thing
+// you are actually watching — crawls its arc at about five pixels a second. The
+// jarring speed was never the ship.
+//
+// At 2 days a second Earth's year takes three minutes, which reads as a world
+// turning over. The costs are honest and small: the Mars run goes from 67
+// seconds to 2.2 minutes, Jupiter from 3.9 to 7.8. The upper tiers are re-spaced
+// so stepping up is a choice rather than a cliff — 2 → 15 → 90 rather than
+// 4 → 25 → 120 — and the top one still crosses to Jupiter in eleven seconds.
+//
+// Multi-year missions do NOT need a faster default: a long contract is something
+// you hold while flying several shorter legs, and the clock only ever has to
+// cover a leg. For anything genuinely decade-long, skip-to-arrival is the answer
+// rather than another tier.
 export const RATES = [
   { label: "❚❚", days: 0, name: "Paused" },
-  { label: "▶", days: 4, name: "4 days a second" },
-  { label: "▶▶", days: 25, name: "25 days a second" },
-  { label: "▶▶▶", days: 120, name: "120 days a second" },
+  { label: "▶", days: 2, name: "2 days a second" },
+  { label: "▶▶", days: 15, name: "15 days a second" },
+  { label: "▶▶▶", days: 90, name: "90 days a second" },
 ];
 
 /** A hop within one planet's system (moon to moon, or surface to orbit) is not a

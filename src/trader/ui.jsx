@@ -181,6 +181,32 @@ export function RowValue({ top, bottom, tone, bottomTone }) {
   );
 }
 
+/**
+ * A PRICE PAIR, said out loud.
+ *
+ * Two bare numbers stacked in the corner of a row do not say which is which, and
+ * the market screen showed exactly that. So each is labelled and toned by which
+ * way the money goes: BUY is what leaves you, SELL is what arrives.
+ *
+ * The WORD is what carries the meaning and the colour only agrees with it, which
+ * is project rule 4 — red and green are the worst possible pair to lean on
+ * alone, and here they are leant on for nothing.
+ */
+export function PricePair({ buy, sell, sellTone }) {
+  return (
+    <div style={{ textAlign: "right", flexShrink: 0 }}>
+      <div style={S.priceLine}>
+        <span style={{ ...S.priceTag, color: "var(--hot)" }}>BUY</span>
+        <span style={{ ...S.rowTop, color: "var(--hot)" }}>{buy}</span>
+      </div>
+      <div style={{ ...S.priceLine, marginTop: 2 }}>
+        <span style={{ ...S.priceTag, color: "#3E9B6E" }}>SELL</span>
+        <span style={{ ...S.rowTop, color: sellTone ? toneColor(sellTone) : "#3E9B6E" }}>{sell}</span>
+      </div>
+    </div>
+  );
+}
+
 /** A small pill. Colour is always paired with the word itself (rule 4). */
 export const Tag = ({ children, tone }) => (
   <span style={{ ...S.tag, color: toneColor(tone), borderColor: toneColor(tone) }}>{children}</span>
@@ -241,6 +267,8 @@ const S = {
   rowSub: { fontSize: 11, color: "var(--muted)", marginTop: 2 },
   rowTop: { fontSize: 13, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
   rowBottom: { fontSize: 11.5, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", marginTop: 1 },
+  priceLine: { display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 6 },
+  priceTag: { fontSize: 9, fontWeight: 700, letterSpacing: 0.9 },
 
   // Absolutely positioned so the list never reflows under the cursor.
   bubble: { position: "absolute", top: "100%", left: 0, right: 0, marginTop: 3, background: "#0E1626", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--gold)", borderRadius: 9, padding: "9px 12px", fontSize: 12, lineHeight: 1.55, color: "#CDD5E4", boxShadow: "0 10px 28px rgba(0,0,0,0.6)", pointerEvents: "none" },
