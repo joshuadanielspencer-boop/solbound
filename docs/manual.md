@@ -189,9 +189,15 @@ exactly one thing: a name they know is a name they will listen to, so talking
 your way out of an encounter is easier. The Standing tab says so, and lists what
 it does *not* yet buy.
 
-### Saving
-The game autosaves on anything worth keeping. `⤓` in the top-left downloads the
-run as a file, which survives a cleared cache and moves between machines.
+### Saving, and running more than one game
+The game autosaves on anything worth keeping. **Continue** on the title screen
+opens *Your runs* — up to six of them on this machine, each with its captain,
+where they are, the date, the money and the seed of the world they are in. Two
+runs on the same seed are the same solar system with different decisions in it.
+
+Deleting a run is final. `⤓` in the top-left of the game downloads it as a file,
+which survives a cleared cache and moves between machines — do that first if a
+run is worth keeping.
 
 ---
 

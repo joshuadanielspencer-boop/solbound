@@ -60,8 +60,21 @@ const MAP_ROTATION = 135.93;
 // e = 0.2488): 12.238 viewBox units per AU puts its full ellipse inside the
 // frame with the semi-minor axis just touching top and bottom.
 const TRUE_AU_AT_R = 38.24;          // AU that maps to R — the semi-minor axis
-const TRUE_SUN_DX = 120;             // the Sun is a FOCUS, not the centre: shift
-                                     // it so the ellipse sits centred in frame
+
+// THE SUN SITS IN THE MIDDLE, and it did not used to.
+//
+// The true-scale view shifted the whole drawing 120 units right so that Pluto's
+// ELLIPSE was centred in the frame — which meant the Sun was not, and the whole
+// solar system looked knocked off its axis by one eccentric orbit. Joshua read
+// it exactly that way, and he is right: the Sun is the thing everything here is
+// bound to, and putting it anywhere but the middle of a map called "true
+// distance" is the one composition that cannot be defended.
+//
+// Centring the Sun costs nothing in scale. Pluto is at a FOCUS-centred distance
+// of 49.3 AU at aphelion, which is 609 units at this scale — inside the 675 the
+// frame allows either side. So the ellipse simply hangs off-centre now, which is
+// what an eccentric orbit LOOKS like, and is the fact that lets Pluto cross
+// inside Neptune. The map gained a lesson by losing a fudge.
 // True-scale view only: anything drawn nearer the Sun than this is part of the
 // inner cluster and gets its name in the side legend instead of on its dot.
 // 100 units catches everything in through Saturn, which is where the pile-up is.
@@ -391,7 +404,7 @@ function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLe
       </div>
       <div style={S.hudStats}>
         <Hstat label="Credits" value={money(p.credits)} tone="gold" />
-        <Hstat label="Hold" value={`${cargoUsed(p).toFixed(0)} / ${cargoCapacity(p).toFixed(0)} t`} />
+        <Hstat label="Cargo" value={`${cargoUsed(p).toFixed(0)} / ${cargoCapacity(p).toFixed(0)} t`} />
         <Hstat label="Fuel" value={`${p.ship.fuelTonnes.toFixed(0)} / ${tankMax(p).toFixed(0)} t`}
           tone={p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined} />
         {/* Hull is a live gauge now that something out there can open it up — and
@@ -833,23 +846,45 @@ function Stars({ seed = 20350101, avoid = 120 }) {
  */
 function ScaleToggle({ on, onToggle }) {
   const facts = trueScaleFacts(R, TRUE_AU_AT_R);
+  const [open, setOpen] = useState(false);
+  const sfx = useSfx();
+  // THE NOTE IS NOW ON DEMAND. Three lines of standing prose in the corner of
+  // the board is the same failure the panel had before it became a tree: true,
+  // unordered, and permanently in the way of the thing it describes. It is the
+  // explanation for a control, so it belongs to the control — point at the
+  // button and it tells you what the button means.
+  //
+  // Absolutely positioned ABOVE the button rather than below it, for the same
+  // reason the panel's bubbles are: nothing on screen may move when you point at
+  // it, and this sits at the bottom of the map with nowhere below to go.
+  const note = on ? facts.note
+    : "Distance is compressed so the inner planets are legible — angles are exact, spacing is not.";
   return (
-    <div style={S.scaleWrap}>
-      <button onClick={onToggle} aria-pressed={on} style={{ ...S.scaleBtn, ...(on ? S.scaleBtnOn : null) }}
-        title={on ? "Back to the readable map" : "Show the planets at their true relative distances"}>
+    <div style={S.scaleWrap} onMouseLeave={() => setOpen(false)}>
+      {open && <div style={S.scaleNote} role="tooltip">{note}</div>}
+      <button aria-pressed={on} style={{ ...S.scaleBtn, ...(on ? S.scaleBtnOn : null) }}
+        aria-describedby="scale-note"
+        onMouseEnter={() => { sfx("focus"); setOpen(true); }}
+        // On the BUTTON as well as the wrapper: the wrapper is pointerEvents:none
+        // so the map underneath stays clickable, and a leave handler on an
+        // element that receives no pointer events is a bubble that never closes.
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => { sfx("focus"); setOpen(true); }}
+        onBlur={() => setOpen(false)}
+        onClick={() => { sfx("select"); onToggle(); }}>
         {on ? "◎ True distance" : "◉ Readable map"}
       </button>
-      <div style={S.scaleNote}>
-        {on ? facts.note
-          : "Distance is compressed so the inner planets are legible — angles are exact, spacing is not."}
-      </div>
+      {/* The same words, always in the accessibility tree even when the bubble
+          is closed — a hover-only explanation is not an explanation for anyone
+          using a screen reader (project rule 4). */}
+      <span id="scale-note" style={S.srOnly}>{note}</span>
     </div>
   );
 }
 
 function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
   const opts = trueScale
-    ? { cx: CX + TRUE_SUN_DX, cy: CY, radius: R, trueScale: true, maxAU: TRUE_AU_AT_R, rotate: MAP_ROTATION }
+    ? { cx: CX, cy: CY, radius: R, trueScale: true, maxAU: TRUE_AU_AT_R, rotate: MAP_ROTATION }
     : { cx: CX, cy: CY, radius: R, trueScale: false, rotate: MAP_ROTATION };
   // At true scale everything shrinks toward the middle, so the Sun's furniture
   // and the planet dots have to shrink with it or they swallow the inner system
@@ -912,8 +947,13 @@ function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
         <radialGradient id="band"><stop offset="0%" stopColor="#8FA6D8" stopOpacity="0.10" /><stop offset="100%" stopColor="#8FA6D8" stopOpacity="0" /></radialGradient>
       </defs>
       <Stars />
+      {/* Dimmer on the readable map, where the rings are close together and a
+          bright lattice competes with the planets sitting on it — and brighter
+          at true scale, where the orbits ARE the picture and everything else has
+          shrunk to a few pixels. */}
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => (
-        <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.26" />
+        <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a"
+          strokeWidth="1" strokeOpacity={trueScale ? 0.42 : 0.26} />
       ))}
       {/* Doubled: the core and corona were a coin at this board size. The haze is
           scaled less than double on purpose — at 264 units it reached past Mars
@@ -1274,13 +1314,18 @@ const S = {
   main: { flex: 1, display: "flex", minHeight: 0 },
   stage: { flex: 1, minWidth: 0, display: "flex", position: "relative" },
   scaleWrap: { position: "absolute", left: 18, bottom: 16, maxWidth: 340, display: "flex", flexDirection: "column", gap: 7, pointerEvents: "none" },
+  // (the note is positioned against this wrapper, which is why it is relative
+  //  by virtue of already being absolute)
   // Border split into its three longhands, not the shorthand: the "on" state
   // overrides only borderColor, and React warns (rightly) that mixing shorthand
   // with longhand on a rerender can drop the other properties. Same pattern the
   // rest of this stylesheet already uses.
   scaleBtn: { alignSelf: "flex-start", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, color: "var(--muted)", pointerEvents: "auto" },
   scaleBtnOn: { borderColor: "var(--gold)", color: "var(--gold)" },
-  scaleNote: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, fontStyle: "italic" },
+  scaleNote: { position: "absolute", left: 0, bottom: "calc(100% + 8px)", width: 320, background: "var(--panel)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 10, padding: "10px 12px", fontSize: 11.5, color: "#CDD5E4", lineHeight: 1.55, boxShadow: "0 10px 30px rgba(0,0,0,0.55)", pointerEvents: "none" },
+  // Present to a screen reader, absent from the picture. The bubble above is a
+  // convenience for a pointer; this is the text itself.
+  srOnly: { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 },
   svg: { flex: 1, minHeight: 0, width: "100%" },
   panel: { width: 400, flexShrink: 0, borderLeft: "1px solid var(--line)", background: "var(--panel)", display: "flex", flexDirection: "column", overflow: "hidden" },
   tabs: { display: "flex", borderBottom: "1px solid var(--line)" },

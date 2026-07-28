@@ -2,16 +2,30 @@
 // SPLASH + START MENU — the front door.
 //
 // Replaces the old "systems hub" that exposed the under-the-hood labs as the
-// landing page. The game is the front door now: title, then Continue (if a save
-// exists) / New game / Options, plus load-from-file. Continue and file import
-// are wired to the real save layer; Options is an honest placeholder until a
-// settings model exists.
+// landing page. The game is the front door now: title, then Continue (if any run
+// exists) / New game, plus load-from-file.
+//
+// CONTINUE NO LONGER RESUMES A GAME. It opens the list of runs (saves.jsx) and
+// you pick one, because there can now be up to MAX_SLOTS of them. The most
+// recent one is named under the button so the common case — one player, one
+// campaign — still reads as "carry on with that".
+//
+// OPTIONS IS GONE. It was an honest placeholder for a settings model that never
+// arrived, and everything it actually did is now where it belongs: music and
+// effects live behind the ♪ control in the game's own header, next to the sound
+// they change. A menu entry that opens a box explaining it does almost nothing
+// is worse than no menu entry.
+//
+// `chrome` mode renders CHILDREN instead of the menu, keeping the title, the
+// starfield and the copyright line around whatever screen the front door is
+// showing — so stepping from the title to the runs list does not feel like
+// leaving the game.
 //
 // The labs still exist for reference (the in-game Codex to be), reachable from
 // a quiet link here rather than being the first thing anyone sees.
 // ===========================================================================
 import { useMemo, useRef, useState } from "react";
-import { savedSummary, deserialize } from "../save.js";
+import { listSaves, deserialize } from "../save.js";
 import { starfield, galacticBand } from "../starfield.js";
 
 /**
@@ -42,11 +56,13 @@ function SplashSky() {
   );
 }
 
-export default function Splash({ onNew, hasSave, onContinue, onImported, audio, onToggleAudio }) {
-  const [options, setOptions] = useState(false);
+export default function Splash({ onNew, hasSave, onContinue, onImported, audio, onToggleAudio, chrome, children }) {
   const [fileError, setFileError] = useState(null);
   const fileInput = useRef(null);
-  const summary = hasSave ? savedSummary() : null;
+  // The most recent run, named under Continue. Reading it here rather than
+  // taking it as a prop keeps the front door honest after a delete.
+  const runs = hasSave ? listSaves() : [];
+  const summary = runs.find((r) => !r.damaged) || null;
 
   const onFile = async (e) => {
     setFileError(null);
@@ -63,43 +79,25 @@ export default function Splash({ onNew, hasSave, onContinue, onImported, audio, 
       <img src={`${import.meta.env.BASE_URL}title-card.png`} alt="SOLBOUND" style={s.logoWide} />
       <div style={s.inner}>
 
-        {options ? (
-          <Options onBack={() => setOptions(false)} audio={audio} onToggleAudio={onToggleAudio} />
-        ) : (
+        {chrome ? children : (
           <div style={s.menu}>
             {summary && (
               <button style={s.primary} onClick={onContinue}>
                 <div style={s.contTop}>Continue ▸</div>
-                <div style={s.contSub}>{summary.name} · {summary.where === "under way" ? "under way" : summary.where} · {summary.dateISO}</div>
+                <div style={s.contSub}>
+                  {summary.name} · {summary.where === "under way" ? "under way" : summary.where} · {summary.dateISO}
+                  {runs.length > 1 && ` · ${runs.length} runs`}
+                </div>
               </button>
             )}
             <button style={summary ? s.secondary : s.primary} onClick={onNew}>New game{summary ? "" : " ▸"}</button>
             <button style={s.secondary} onClick={() => fileInput.current?.click()}>Load from file</button>
-            <button style={s.secondary} onClick={() => setOptions(true)}>Options</button>
             <input ref={fileInput} type="file" accept=".json,application/json" onChange={onFile} style={{ display: "none" }} />
             {fileError && <div style={s.fileErr}>{fileError}</div>}
           </div>
         )}
         <p style={s.copyright}>© 2026 Lotus Creative Studios</p>
       </div>
-    </div>
-  );
-}
-
-function Options({ onBack, audio, onToggleAudio }) {
-  return (
-    <div style={s.optionsBox}>
-      <div style={s.optTitle}>Options</div>
-      <p style={s.optNote}>
-        Sound and accessibility settings will live here. The victory condition — a short
-        <b> Run</b> to a target fortune, or the long <b>Campaign</b> to sever Earth-dependency —
-        is chosen when you start a new game, not here.
-      </p>
-      <div style={s.optRow}>
-        <span>Music</span>
-        <button style={s.optBtn} onClick={onToggleAudio}>{audio?.on ? "On" : "Off"}</button>
-      </div>
-      <button style={s.back} onClick={onBack}>← Back</button>
     </div>
   );
 }

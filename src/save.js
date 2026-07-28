@@ -31,6 +31,29 @@ export const SAVE_VERSION = 9;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
+// ---------------------------------------------------------------------------
+// SLOTS — more than one run at a time
+// ---------------------------------------------------------------------------
+//
+// The game kept exactly one autosave, under one key, and "Continue" resumed it.
+// That is fine for one captain and wrong for the shape the game is growing into:
+// a Run and a Campaign are two different games (design.md §12), a seed is worth
+// keeping to compare worlds, and a player who wants to try a smuggling run
+// should not have to destroy the campaign they are twelve hours into.
+//
+// So a save now lives at `solbound.save.v1.slot.<n>` and the old single key is
+// migrated into slot 1 the first time anything asks for the list. That migration
+// is why the legacy key is still read here at all — deleting it would silently
+// destroy the save of anybody who had been playing.
+//
+// SLOTS ARE NUMBERED RATHER THAN KEYED BY A GENERATED ID, because the number is
+// something a person can be shown ("Run 3") and because reusing the lowest free
+// number after a delete keeps the list from growing gaps forever. There is no
+// account and no server: this is local storage on one machine, and the file
+// export remains the way a run moves between machines.
+const SLOT_PREFIX = "solbound.save.v1.slot.";
+export const MAX_SLOTS = 6;
+
 /**
  * Wrap a game in a save envelope. The envelope carries its own version and a
  * stamp so a UI can show "saved 3 minutes ago"; the stamp is passed in rather
@@ -272,13 +295,98 @@ export function clearSave() {
 /** A tiny summary of the stored save for the splash, without loading the world. */
 export function savedSummary() {
   const save = loadAutosave();
-  if (!save) return null;
+  return save ? summarise(save) : null;
+}
+
+// ---------------------------------------------------------------------------
+// The slot API — see the note beside SLOT_PREFIX for why this exists
+// ---------------------------------------------------------------------------
+
+const slotKey = (slot) => `${SLOT_PREFIX}${slot}`;
+
+/** What a menu needs to show about a run without loading its world. */
+function summarise(save, slot = null) {
   const g = save.state;
   return {
+    slot,
     name: g.player?.name,
     credits: g.player?.credits,
     where: g.status === "transit" ? "under way" : g.player?.at,
     dateISO: new Date(g.t).toISOString().slice(0, 10),
+    seed: g.seed,
+    over: !!g.over,
+    stampMs: save.stampMs || 0,
     label: save.label,
   };
 }
+
+/**
+ * Move a pre-slots autosave into slot 1.
+ *
+ * Runs once, lazily, the first time anything asks about slots — and ONLY when
+ * no slot is occupied, so it can never overwrite a real save. The old key is
+ * left in place rather than deleted: it costs a few kilobytes and it means a
+ * mistake here is recoverable rather than final.
+ */
+function adoptLegacySave() {
+  if (!storageOK()) return;
+  for (let i = 1; i <= MAX_SLOTS; i++) if (localStorage.getItem(slotKey(i))) return;
+  const legacy = localStorage.getItem(STORAGE_KEY);
+  if (!legacy) return;
+  try { localStorage.setItem(slotKey(1), legacy); } catch { /* full or blocked */ }
+}
+
+/** Every run this browser is holding, most recently saved first. */
+export function listSaves() {
+  if (!storageOK()) return [];
+  adoptLegacySave();
+  const out = [];
+  for (let i = 1; i <= MAX_SLOTS; i++) {
+    const text = localStorage.getItem(slotKey(i));
+    if (!text) continue;
+    const r = deserialize(text);
+    // A slot that will not parse is reported as damaged rather than hidden. A
+    // run vanishing from the list with no explanation is the worse failure.
+    if (r.error) { out.push({ slot: i, damaged: true, message: r.message }); continue; }
+    out.push(summarise(r.save, i));
+  }
+  return out.sort((a, b) => (b.stampMs || 0) - (a.stampMs || 0));
+}
+
+/** The lowest slot with nothing in it, or null when every one is taken. */
+export function nextFreeSlot() {
+  if (!storageOK()) return 1;
+  adoptLegacySave();
+  for (let i = 1; i <= MAX_SLOTS; i++) if (!localStorage.getItem(slotKey(i))) return i;
+  return null;
+}
+
+/** Write a run to its slot. Same silent-failure contract as autosave(). */
+export function saveToSlot(game, slot, stampMs = 0) {
+  if (!storageOK() || !slot) return false;
+  try {
+    localStorage.setItem(slotKey(slot), serialize(makeSave(game, { slot, stampMs })));
+    return true;
+  } catch { return false; }
+}
+
+/** The save in a slot, or null. */
+export function loadSlot(slot) {
+  if (!storageOK() || !slot) return null;
+  const text = localStorage.getItem(slotKey(slot));
+  if (!text) return null;
+  const r = deserialize(text);
+  return r.error ? null : r.save;
+}
+
+/** Throw a run away. Irreversible, so the UI asks first. */
+export function deleteSlot(slot) {
+  if (!storageOK() || !slot) return;
+  try { localStorage.removeItem(slotKey(slot)); } catch { /* ignore */ }
+  // If slot 1 was the adopted legacy save, drop the legacy key with it —
+  // otherwise the next call to listSaves() would helpfully resurrect it.
+  if (Number(slot) === 1) { try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ } }
+}
+
+/** Is there anything at all to continue? */
+export const hasAnySave = () => listSaves().length > 0;

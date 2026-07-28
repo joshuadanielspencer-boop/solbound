@@ -24,6 +24,7 @@ if (typeof globalThis.localStorage === "undefined") {
 import {
   makeSave, serialize, deserialize, SAVE_VERSION,
   autosave, loadAutosave, hasSave, clearSave, savedSummary,
+  listSaves, nextFreeSlot, saveToSlot, loadSlot, deleteSlot, hasAnySave, MAX_SLOTS,
 } from "../src/save.js";
 import { newGame, launch } from "../src/tradergame.js";
 import { newPlayer } from "../src/player.js";
@@ -175,5 +176,105 @@ describe("autosave and resume", () => {
     const g1 = freshGame(1), g2 = freshGame(2);
     autosave(g1); autosave(g2);
     expect(loadAutosave().state.seed).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SLOTS — more than one run at a time
+//
+// Three things have to hold, and the third is the one that would hurt:
+//   1. Runs are independent. Two saves must never write over each other.
+//   2. Nobody loses the save they already had. The pre-slots autosave has to
+//      arrive in slot 1 rather than being orphaned by the upgrade.
+//   3. Deleting is final and must not resurrect. Slot 1 is the adopted legacy
+//      save, so deleting it has to take the legacy key with it — otherwise the
+//      very next listing helpfully brings it back from the dead.
+// ---------------------------------------------------------------------------
+describe("save slots", () => {
+  beforeEach(() => {
+    clearSave();
+    for (let i = 1; i <= MAX_SLOTS; i++) deleteSlot(i);
+  });
+
+  it("starts empty and hands out the lowest free place", () => {
+    expect(listSaves()).toEqual([]);
+    expect(hasAnySave()).toBe(false);
+    expect(nextFreeSlot()).toBe(1);
+  });
+
+  it("keeps two runs entirely separate", () => {
+    saveToSlot(freshGame(11), 1, 1000);
+    saveToSlot(freshGame(22), 2, 2000);
+    expect(loadSlot(1).state.seed).toBe(11);
+    expect(loadSlot(2).state.seed).toBe(22);
+    // The bug this whole change exists to make impossible: one run's autosave
+    // landing on another's.
+    saveToSlot(freshGame(33), 1, 3000);
+    expect(loadSlot(2).state.seed).toBe(22);
+  });
+
+  it("lists most recently saved first, which is what Continue names", () => {
+    saveToSlot(freshGame(1), 1, 1000);
+    saveToSlot(freshGame(2), 2, 5000);
+    saveToSlot(freshGame(3), 3, 3000);
+    expect(listSaves().map((r) => r.slot)).toEqual([2, 3, 1]);
+  });
+
+  it("carries the seed, so two runs on one world can be told apart", () => {
+    saveToSlot(freshGame(4242), 1, 1000);
+    expect(listSaves()[0].seed).toBe(4242);
+  });
+
+  it("reuses a freed place instead of growing gaps forever", () => {
+    saveToSlot(freshGame(1), 1, 1);
+    saveToSlot(freshGame(2), 2, 2);
+    expect(nextFreeSlot()).toBe(3);
+    deleteSlot(1);
+    expect(nextFreeSlot()).toBe(1);
+  });
+
+  it("fills up and says so rather than overwriting somebody", () => {
+    for (let i = 1; i <= MAX_SLOTS; i++) saveToSlot(freshGame(i), i, i);
+    expect(listSaves().length).toBe(MAX_SLOTS);
+    expect(nextFreeSlot()).toBe(null);
+  });
+
+  it("adopts a pre-slots autosave into slot 1", () => {
+    // The upgrade path for anybody who was already playing. Their run must be
+    // in the list, not orphaned under a key nothing reads any more.
+    autosave(freshGame(777), 4242);
+    expect(listSaves().map((r) => r.seed)).toEqual([777]);
+    expect(loadSlot(1).state.seed).toBe(777);
+  });
+
+  it("never adopts on top of a real save", () => {
+    autosave(freshGame(777), 1);
+    saveToSlot(freshGame(999), 1, 2);
+    expect(listSaves().map((r) => r.seed)).toEqual([999]);
+  });
+
+  it("stays deleted — the legacy key does not resurrect slot 1", () => {
+    autosave(freshGame(777), 1);
+    expect(listSaves().length).toBe(1);      // adopts
+    deleteSlot(1);
+    expect(listSaves()).toEqual([]);         // and stays gone
+    expect(nextFreeSlot()).toBe(1);
+  });
+
+  it("reports a corrupted slot instead of quietly hiding it", () => {
+    // A run vanishing from the list with no explanation is worse than a row
+    // that says it cannot be read.
+    localStorage.setItem("solbound.save.v1.slot.3", "{ this is not json");
+    const rows = listSaves();
+    expect(rows.length).toBe(1);
+    expect(rows[0].damaged).toBe(true);
+    expect(rows[0].slot).toBe(3);
+    localStorage.removeItem("solbound.save.v1.slot.3");
+  });
+
+  it("survives being asked about a slot that holds nothing", () => {
+    expect(loadSlot(4)).toBeNull();
+    expect(loadSlot(null)).toBeNull();
+    expect(saveToSlot(freshGame(), null)).toBe(false);
   });
 });

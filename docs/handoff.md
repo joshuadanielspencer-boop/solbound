@@ -91,6 +91,72 @@ of this file is the detail that block points at.
 
 ---
 
+## Front-door and map pass, 2026-07-28 — and the autosave was broken
+
+Joshua's list, all done. Four were small; the fifth turned over a rock.
+
+**The scale note is a hover bubble now.** Three lines of standing prose in the
+corner of the board was the same failure the panel had before it became a tree:
+true, unordered, permanently in the way of the thing it described. It belongs to
+the control it explains, so it lives on the button — with the same words kept in
+the accessibility tree at all times, because a hover-only explanation explains
+nothing to a screen reader (rule 4).
+
+**The Sun is in the middle of the true-distance view.** It was shifted 120 units
+right so Pluto's ELLIPSE was centred, which meant the Sun was not, and the whole
+solar system looked knocked off its axis by one eccentric orbit. Joshua read it
+exactly that way and he is right. Centring the Sun costs nothing: at this scale
+Pluto's aphelion is 609 units and the frame allows 675 either side, so nothing
+clips (measured: every orbit path lies within x 66–1049 of 1350, y 25–971 of
+1000). What it gains is a lesson — the ellipse now visibly hangs off-centre from
+the Sun, which is what eccentricity LOOKS like and is the fact that lets Pluto
+cross inside Neptune. Orbit opacity is 0.42 in that view and stays 0.26 on the
+readable map, where the rings are close together and a bright lattice competes
+with the planets sitting on it.
+
+**"Hold" is "Cargo"** in the header. **Options is gone** from the title screen —
+it was a placeholder for a settings model that never arrived, and everything it
+did is now behind the ♪ control in the game's own header, next to the sound it
+changes.
+
+### Multiple runs
+
+`Continue` no longer resumes THE save. It opens **Your runs** (`src/trader/saves.jsx`),
+which lists up to `MAX_SLOTS` (6) games with captain, position, date, money and
+**seed** — two runs on one seed are the same solar system with different
+decisions in it, which is a comparison this game is built for and nothing else
+surfaced.
+
+Saves live at `solbound.save.v1.slot.<n>`. The pre-slots autosave is **adopted
+into slot 1** the first time anything asks for the list, and only when no slot is
+occupied, so it can never overwrite a real save. Deleting slot 1 removes the
+legacy key too — otherwise the next listing helpfully resurrects it, which is
+tested. A slot that will not parse is listed as damaged rather than hidden: a run
+vanishing with no explanation is the worse failure.
+
+### ⚠ THE AUTOSAVE HAS NOT BEEN WORKING, and this is how it surfaced
+
+Starting a second run and watching its slot stay empty. The debounced autosave
+effect depended on `game`. The port clock ticks **ten times a second** and hands
+back a new game object every tick; React runs the previous cleanup before each
+re-run, so the pending two-second timer was cancelled every hundred
+milliseconds and **never fired**. In transit it is worse — that clock ticks at
+33 ms.
+
+It became broken rather than being written broken. The debounce was correct when
+the dock clock still had a hold button; removing that button (so a static orrery
+could never be chosen) quietly took the quiet periods with it. The save only ever
+landed in the moments the clock was stopped — an encounter, the pause menu —
+which is exactly why it looked like it worked.
+
+Fixed by depending on the **signature** rather than the game, with the game read
+through a ref at write time so what lands is the latest state. Verified in the
+browser: a second run's slot now fills on its own.
+
+**Worth taking seriously:** 493 tests pass and none of them caught this, because
+it is a React effect-dependency bug and there is still no UI test of any kind.
+That is the same gap that hid the Yard crash on 2026-07-27. Two real bugs now.
+
 ## Sound effects — the alert and trade core, built 2026-07-28
 
 Proposed first, as asked, then built the half Joshua picked. Same approach as the
