@@ -357,7 +357,9 @@ function Yard({ game, screen, go, back, actions }) {
     <Screen title="Ship Yard" hint={`${techOf(site).name} yard · trade-in on your ${hull.name}: ${money(tradeInValue(p.ship))}`}>
       <StatStrip items={[
         { label: "Hull", value: `${p.ship.hullPct ?? 100}%`, tone: dmg > 0 ? "hot" : "ok" },
-        { label: "Hold", value: `${fittedStats(p.ship.hull, p.ship.modules).cargoTonnes} t` },
+        // "Cargo", matching the header. Two words for one number taught the
+        // player there were two numbers.
+        { label: "Cargo", value: `${fittedStats(p.ship.hull, p.ship.modules).cargoTonnes} t` },
         { label: "Bays", value: `${slots.usedSlots}/${slots.totalSlots}` },
         { label: "Berths", value: `${p.crew?.length || 0}/${berths}` },
       ]} />
