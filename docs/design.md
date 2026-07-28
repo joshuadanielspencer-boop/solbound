@@ -390,14 +390,20 @@ across 6 files.
 
 ### GAP — the work, in order
 
-1. **Money, cargo, markets, buy/sell.** The entire economic layer. Nothing
-   exists.
+1. ~~**Money, cargo, markets, buy/sell.**~~ Built.
 2. **Save/load.** Nothing persists. Must not be deferred — the simulation is
    already interconnected enough that retrofitting will hurt.
 3. **Ship hulls, modules, fitting.** One hard-coded ship type today.
 4. **Sites and stations.** Bodies exist; *places on them you can dock at, trade
    with and build on* do not.
-5. **Production chains and ISRU.**
+5. ~~**Production chains and ISRU.**~~ **BUILT 2026-07-28** — `src/industry.js`,
+   `data/industry.js`. Twelve processes across power, extraction, refining and
+   fabrication; a plant moves the site's market EQUILIBRIUM rather than its
+   stock, so it cures a dependency instead of easing it; income decays as it
+   succeeds, on purpose; and `importDependency()` is the first number in the game
+   that scores §5's victory condition rather than the player's wealth. Solar
+   output falls as 1/r² off each site's real `light`, which gates the outer
+   system exactly as §6 said it should.
 6. **Missions and contracts.**
 7. **Rivals** (§9).
 8. **Infrastructure** — depots, refineries, shipyards.

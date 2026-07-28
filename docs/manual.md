@@ -59,9 +59,12 @@ When you have a few hundred thousand spare, the **Yard** is where it goes.
 |---|---|
 | **⚓ Dock** | The market. Buy, sell, refuel, wait, read the local paper. |
 | **🔧 Yard** | Repair the hull, refit the drive, fit modules, hire crew, trade up the ship. Gated by how developed the port is. |
-| **🧭 Course** | Where you can go, what it costs, what your cargo is worth there, and the Launch button. |
+| **🧭 Course** | Every port you could fly to, sortable by **soonest**, **cheapest**, or **best paid**. The map shows you where; this shows you which. |
 | **⚖ Standing** | Who is out here this run, what they make of you, and what it took. |
 | **🗺 Atlas** | The real places you have charted. Earth is known from the start; docking charts a place; arriving with a **survey lab** fitted charts a whole system. |
+
+**Build here** lives on the Dock, and it is what the campaign is actually about —
+see §7.
 
 **The map is a control, not a picture, and it has three depths.** Click a planet
 (or Tab to it and press Enter) to go inside its system and see its moons and
@@ -127,7 +130,39 @@ waiting is free. With a crew, dithering is expensive.
 
 ---
 
-## 5. How a run ends
+## 5. Building things
+
+Carrying cargo to a port that needs it is the game's first hour. **Curing the
+reason it needs it** is the rest of the game.
+
+Open **Build here** on the Dock at any port you have docked at. You cannot build
+somewhere you have never been, and you cannot build what the ground will not
+support — there is no ice mine where there is no ice, and the census knows which
+is which.
+
+**Start with power.** Nothing runs without it. A solar farm is cheap and it is
+rated for Earth's distance from the Sun; what it actually delivers falls as the
+square of that distance, so the same array that runs a plant on the Moon delivers
+about a twenty-seventh as much at Jupiter and a ninetieth at Saturn. Past Mars you
+build a fission plant or you build nothing. That is not a rule we invented — it is
+the reason the outer solar system is a different kind of place.
+
+**Then a chain.** Extraction takes what is under your feet. Refining turns it into
+something useful — an electrolysis plant splits water into propellant, and by mass
+water is 89% oxygen, which is why "water is fuel" is really a statement about
+oxidiser. Fabrication is the top rung and needs the other two beneath it. A plant
+with nothing feeding it will simply buy its feedstock off the local market, which
+works and is expensive; build the mine underneath and the same plant starts paying.
+
+**Watch the money go down.** A plant sells its output into the port's own market
+at the port's own price. Supplying a shortage cures it, and curing it destroys the
+margin on it. That is not a fault. What you bought was not an income — it was a
+port that no longer needs importing, and the **Imports** figure on that screen is
+the number that says so. Getting it to zero, everywhere, is the campaign.
+
+---
+
+## 6. How a run ends
 
 One roll happens per leg, at launch, keyed to your run's seed — so reloading a
 save will not reroll it. Most of what happens is a choice: fight, run, pay them,
@@ -145,7 +180,7 @@ over. Buy it early.
 
 ---
 
-## 6. Quick reference
+## 7. Quick reference
 
 ### Market symbols
 | | |

@@ -91,6 +91,113 @@ of this file is the detail that block points at.
 
 ---
 
+## Production chains, a UI smoke test, and three data fixes — 2026-07-28 (third)
+
+The session where the campaign's spine went in, and where the test suite finally
+learned to open a screen.
+
+### The UI smoke test, and proof it works
+
+`test/ui.smoke.test.js` — jsdom plus react-dom, no testing-library, no snapshots.
+It mounts the game, opens every tab and every screen behind them, opens every
+system on the orrery and a surface map for all seventeen bodies, and walks the
+front door from title to playing.
+
+**It asserts silence as well as success**: `console.error` is captured and any
+output fails the test, which is where React reports the NaN-attribute and
+key-order bugs that otherwise just make something look slightly wrong.
+
+**And I checked it actually catches the two bugs it exists for**, by putting both
+back: `crewForHire` given a site id fails the Yard walk with the original
+TypeError, and the autosave effect depending on `game` again fails the front-door
+test on an empty slot list.
+
+⚠ **THE FIRST VERSION OF THE AUTOSAVE TEST DID NOT CATCH IT**, and that is the
+most useful thing in the file. One `advanceTimersByTimeAsync(6000)` fires every
+interval callback in a batch and lets React flush ONCE at the end — so the effect
+re-runs once, its timer survives, and the save lands *even with the bug present*.
+A green test watching the bug go past. Advancing 100 ms at a time inside its own
+`act()` makes React re-render BETWEEN clock ticks, which is what a browser does
+and what cancels a badly-scoped debounce forever. The `tick()` helper exists for
+exactly this and the note is on it.
+
+**It earned its keep within minutes**: giving Ceres a rotation model crashed the
+surface map (`periodDays` threw for a body ELEMENTS does not carry), and the
+smoke test caught it before I had opened a browser.
+
+### Production chains — the campaign's spine
+
+`src/data/industry.js` (twelve processes) and `src/industry.js` (pure engine),
+with a **Build here** screen on the Dock.
+
+**The one idea it hangs off:** a cargo eases a shortage for a season, because
+`advanceMarkets` drags stock back to the site's equilibrium. **A plant moves the
+equilibrium itself.** It reaches prices through `market.mods.owned`, beside the
+faction modifiers that already bent supply the same way — the extension point was
+already there because factions needed it first, so the pricing model needed no
+change at all. A test holds the difference by putting the same tonnage on the
+shelf by hand: after 400 days a delivery's effect is under 6% and fading, a
+plant's is five times that and permanent.
+
+**The income decays on purpose.** Supplying a shortage cures it and the price
+falls. Every instinct says fix that; design.md §5 says don't, and a test asserts
+the decline. `importDependency()` is what you actually bought.
+
+**Fact vs abstraction is stated in the data file**, because it matters more there
+than anywhere: the chemistry is fact (water is 11.19%/88.81% H/O by mass; Sabatier
+is CO₂ + 4H₂ → CH₄ + 2H₂O; lunar regolith is 40–45% oxygen), the throughputs and
+costs are abstraction and say so, and there is no speculation — every process is
+one somebody is prototyping now.
+
+**Sunlight finally costs something.** Every site already carried a real `light`
+and nothing read it. A solar farm delivers its rating × that, so the array that
+runs an electrolysis plant at Luna cannot run one at Titan. That is design.md §6
+and astronomy.md §2b① item 1, arriving through an industry screen.
+
+**Two things the data corrected me on.** I wrote the cure test around propellant
+at Shackleton — which sits on ice and already makes its own, so there was nothing
+to cure and the test failed against correct code. Food is the right example and
+the census chose it: all seventeen sites import food and not one grows it. And
+ordering matters in `passTime` — works run BEFORE markets drift, or the day's
+production is half-reverted before anyone sees it.
+
+Save is **v10**.
+
+### The map / Course merge
+
+Pointing at a port on the system map fills the panel with that trip's cost;
+moving off restores the atlas; clicking still commits. Read-only on purpose — a
+preview that could launch would make a drifting mouse an eight-month commitment.
+
+Course survived as a **sortable table**: soonest, cheapest, best paid. The third
+is what the hold fetches at the far end, which no map can show and which is the
+reason the screen is not redundant; it is disabled with an empty hold rather than
+showing a column of zeroes.
+
+### The three small fixes
+
+- **Ceres and Vesta rotate.** JPL SBDB periods and poles; obliquity DERIVED (spin
+  axis rotated equatorial→ecliptic, dotted with the orbit normal) at 4.048° and
+  27.469°, landing on the published ~4° and ~27°. `test/bodies.test.js` re-does
+  the arithmetic. They carry their own `yearDays` because ELEMENTS holds only the
+  nine planets.
+- **Four feature coordinates were west longitudes in an east field** — Loki
+  Patera, Conamara Chaos, Damascus Sulcus, Kraken Mare, all outer-planet
+  satellites where the IAU convention IS west. `scripts/check-feature-coords.mjs`
+  now holds the file against the gazetteer and exits non-zero on disagreement.
+- **Four places named a world they are not on.** Sputnik Planitia under Charon;
+  himalia/phoebe-gate/ring-camps under moons they do not orbit. Fixed and pinned.
+
+### Still open after this session
+
+- **Missions** — now they have somewhere real to point (survey contracts, depot
+  supply) instead of being freight for its own sake.
+- **`alert`, `damage`, `caught` have still never been heard in play.**
+- Difficulty; the balance list; the 2050 ephemeris horizon; `DELTA_V_FROM_LEO`.
+- **Industry balance is entirely unplayed.** Build costs, throughputs, the
+  90/day-per-head plant wage, and whether a solar farm at $260,000 against a
+  $300,000 purse is the right first mountain. None of it is blind-tuned.
+
 ## Front-door and map pass, 2026-07-28 — and the autosave was broken
 
 Joshua's list, all done. Four were small; the fifth turned over a rock.
