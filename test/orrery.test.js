@@ -20,7 +20,7 @@
 import { describe, it, expect } from "vitest";
 import { logRadius, linearRadius, project, orbitPath, trueScaleFacts, sayLightTime, sayDistance } from "../src/orrery.js";
 
-const OPTS = { cx: 500, cy: 500, radius: 448 };
+const OPTS = { cx: 500, cy: 500, radius: 472 };
 const AU = {
   mercury: 0.387, venus: 0.723, earth: 1.0, mars: 1.524, belt: 2.77,
   jupiter: 5.20, saturn: 9.58, uranus: 19.2, neptune: 30.07, pluto: 39.5,
@@ -89,13 +89,38 @@ describe("true scale is actually true", () => {
   });
 
   it("states what it is showing, in miles, without inventing numbers", () => {
-    const f = trueScaleFacts(448);
-    expect(f.pxPerAU).toBeCloseTo(448 / 50, 9);
+    const f = trueScaleFacts(472, 50);
+    expect(f.pxPerAU).toBeCloseTo(472 / 50, 9);
     // One AU is 92,955,807 miles; the note must agree with that arithmetic.
-    expect(f.milesPerPx).toBeCloseTo(92955807 / (448 / 50), 3);
+    expect(f.milesPerPx).toBeCloseTo(92955807 / (472 / 50), 3);
     expect(f.innerSystemPct).toBeCloseTo(3.04, 2);
     expect(f.note).toMatch(/million miles/);
     expect(f.note).toMatch(/3%/);
+  });
+
+  // The view scales to whatever is currently outermost so it fills the board.
+  // That is only allowed because it changes nothing about the RATIOS, which are
+  // the whole reason the view exists — so that is what gets pinned.
+  it("filling the frame changes the divisor and nothing else", () => {
+    const ratio = (maxAU) => {
+      const a = project(AU.earth, 0, { ...OPTS, trueScale: true, maxAU });
+      const b = project(AU.neptune, 0, { ...OPTS, trueScale: true, maxAU });
+      return b.R / a.R;
+    };
+    expect(ratio(50)).toBeCloseTo(ratio(41), 9);
+    expect(ratio(41)).toBeCloseTo(AU.neptune / AU.earth, 9);
+  });
+
+  it("scaling to the outermost body puts it on the rim, not three-quarters out", () => {
+    const pinned = project(AU.pluto, 0, { ...OPTS, trueScale: true, maxAU: 50 }).R;
+    const filled = project(AU.pluto, 0, { ...OPTS, trueScale: true, maxAU: AU.pluto * 1.015 }).R;
+    expect(pinned / OPTS.radius).toBeLessThan(0.82);        // the old wasted frame
+    expect(filled / OPTS.radius).toBeGreaterThan(0.97);     // and the new one
+  });
+
+  it("the caption's miles-per-pixel follows the divisor it was given", () => {
+    expect(trueScaleFacts(472, 40).milesPerPx).toBeLessThan(trueScaleFacts(472, 50).milesPerPx);
+    expect(trueScaleFacts(472, 40).maxAU).toBe(40);
   });
 });
 
@@ -111,7 +136,10 @@ describe("the board fits its frame", () => {
       expect(p.y).toBeLessThanOrEqual(1000);
     }
     expect(OPTS.radius).toBeLessThan(500);
-    expect(500 - OPTS.radius).toBeGreaterThanOrEqual(40);   // margin for labels
+    // 28 units of margin, which is exactly enough for Pluto's label and nothing
+    // more. Pluto is the only body that ever reaches the rim, so it is the only
+    // one paying for the space — everything else has room to spare.
+    expect(500 - OPTS.radius).toBeGreaterThanOrEqual(25);
   });
 
   it("uses most of the frame — the target is a desktop window", () => {

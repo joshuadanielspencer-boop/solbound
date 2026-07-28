@@ -32,8 +32,19 @@ const R_MAX = 50;    // AU mapped to the outer edge (past the Kuiper Belt ring)
  */
 export const logRadius = (au) => Math.log(1 + au / K) / Math.log(1 + R_MAX / K);
 
-/** The honest one, for the scale toggle. */
-export const linearRadius = (au) => Math.min(1, au / R_MAX);
+/**
+ * The honest one, for the scale toggle.
+ *
+ * `maxAU` is what gets mapped to the outer edge, and it is a parameter rather
+ * than the fixed R_MAX because the true-scale view should FILL the board. Pinned
+ * at 50 AU, Pluto sat three-quarters of the way out with a wide empty ring
+ * around it — a quarter of the frame spent on nothing. Scaling to whatever is
+ * currently outermost costs no honesty at all: every ratio between two bodies is
+ * identical whatever the divisor, which is the entire property that makes this
+ * view worth having. What changes is the miles-per-pixel figure, and the view
+ * states that figure on screen rather than assuming it.
+ */
+export const linearRadius = (au, maxAU = R_MAX) => Math.min(1, au / maxAU);
 
 /**
  * Polar (AU, ecliptic longitude) → SVG point.
@@ -43,8 +54,8 @@ export const linearRadius = (au) => Math.min(1, au / R_MAX);
  * the Sun's north pole. Getting this backwards would draw a solar system that
  * looks perfect and runs in reverse.
  */
-export function project(au, lonDeg, { cx, cy, radius, trueScale = false }) {
-  const t = trueScale ? linearRadius(au) : logRadius(au);
+export function project(au, lonDeg, { cx, cy, radius, trueScale = false, maxAU = R_MAX }) {
+  const t = trueScale ? linearRadius(au, maxAU) : logRadius(au);
   const R = t * radius;
   const a = (lonDeg * Math.PI) / 180;
   return { x: cx + R * Math.cos(a), y: cy - R * Math.sin(a), R };
@@ -101,17 +112,18 @@ export function sayLightTime(sec) {
  *
  * `radiusPx` is the board radius the outermost orbit is drawn at.
  */
-export function trueScaleFacts(radiusPx) {
-  const pxPerAU = radiusPx / R_MAX;
+export function trueScaleFacts(radiusPx, maxAU = R_MAX) {
+  const pxPerAU = radiusPx / maxAU;
   const milesPerPx = 92955807 / pxPerAU;
   return {
     pxPerAU,
     milesPerPx,
+    maxAU,
     // Mars is the outer edge of the inner system, and the number is startling.
-    innerSystemPct: (1.52 / R_MAX) * 100,
+    innerSystemPct: (1.52 / maxAU) * 100,
     note: `One pixel is about ${(milesPerPx / 1e6).toFixed(1)} million miles. `
       + `Mercury, Venus, Earth and Mars all fit inside the innermost `
-      + `${((1.52 / R_MAX) * 100).toFixed(0)}% of this view — the solar system is `
+      + `${((1.52 / maxAU) * 100).toFixed(0)}% of this view — the solar system is `
       + `overwhelmingly empty, and the map you play on hides that.`,
   };
 }
