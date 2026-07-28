@@ -7,7 +7,7 @@
 // real transfer arc while the planets move; the clock pauses itself on arrival
 // and the dock opens. Time you can hurry, slow, or skip — but never fake.
 // ===========================================================================
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
 import { project, orbitPath, sayLightTime } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
@@ -28,6 +28,8 @@ import { shipsForSale, modulesForSale, tradeInValue, repairCost, drivesForSale, 
 import { buyShip, fitModule, removeModule, repairHull, buyEscapePod, buyDrive } from "../shipyard.js";
 import { DRIVES, tankAfter } from "../propulsion.js";
 import { CRYO_FACTOR } from "../tradergame.js";
+import { createMusic, contextOf, loadAudioPref } from "../audio.js";
+import { starfield, galacticBand } from "../starfield.js";
 import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
 import { CREW_BY_ID, berthsFor } from "../data/crew.js";
 import { SKILLS } from "../data/captain.js";
@@ -63,6 +65,47 @@ export default function Play({ game, setGame, onQuit }) {
   const flash = (text, kind = "ok") => setToast({ text, kind });
   const transit = game.status === "transit";
   const stopped = !!game.encounter || !!game.over;   // the clock holds for both
+
+  // ---- the soundtrack -----------------------------------------------------
+  // Built in the browser from the scores in data/music.js (audio.js). It cannot
+  // legally start until the player has clicked something, so it starts on the
+  // first click anywhere and remembers the answer thereafter.
+  const music = useRef(null);
+  const [audio, setAudio] = useState(() => loadAudioPref());
+  const [cue, setCue] = useState(null);
+  useEffect(() => {
+    const m = createMusic();
+    music.current = m;
+    const off = m.onChange(() => setCue(m.nowPlaying()));
+    const wake = () => { if (audioPrefRef.current.on) { m.start(); setCue(m.nowPlaying()); } };
+    window.addEventListener("pointerdown", wake, { once: true });
+    window.addEventListener("keydown", wake, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("keydown", wake);
+      off(); m.dispose(); music.current = null;
+    };
+  }, []);
+  // The listener above is registered once, so it needs a live read of the
+  // preference rather than the value captured when it was attached.
+  const audioPrefRef = useRef(audio);
+  audioPrefRef.current = audio;
+
+  // Follow the game: where the player is decides which cue suits the moment.
+  const musicContext = contextOf(game, (siteId) => siteOf(game, siteId)?.system);
+  useEffect(() => { music.current?.setContext(musicContext); }, [musicContext]);
+
+  const toggleAudio = () => {
+    const next = { ...audio, on: !audio.on };
+    setAudio(next);
+    music.current?.setOn(next.on);
+    if (next.on) { music.current?.start(); setCue(music.current?.nowPlaying()); }
+  };
+  const setAudioLevel = (level) => {
+    const next = { ...audio, level };
+    setAudio(next);
+    music.current?.setLevel(level);
+  };
 
   // ---- the living clock ---------------------------------------------------
   // setInterval, not requestAnimationFrame: rAF is throttled to zero in a hidden
@@ -204,7 +247,8 @@ export default function Play({ game, setGame, onQuit }) {
   return (
     <div style={S.app}>
       <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave}
-        onToggleDockClock={toggleDockClock} />
+        onToggleDockClock={toggleDockClock}
+        audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel} />
       <div style={S.main}>
         <div style={S.stage}>
           {zoom
@@ -255,7 +299,7 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock }) {
+function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock, audio, cue, onToggleAudio, onAudioLevel }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
@@ -264,6 +308,7 @@ function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock }) {
     <header style={S.hud}>
       <button onClick={onDownload} style={S.homeBtn} title="Download this game as a file"
         aria-label="Download save file">⤓</button>
+      <MusicControl audio={audio} cue={cue} onToggle={onToggleAudio} onLevel={onAudioLevel} />
       <div>
         <div style={S.capName}>{p.name}</div>
         <div style={S.sub}>{p.ship.name} · {where}</div>
@@ -309,6 +354,36 @@ function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock }) {
     </header>
   );
 }
+/**
+ * The music control. Small on purpose — it is a background score, and a
+ * transport bar would invite the player to manage it instead of playing.
+ *
+ * The cue's name is in the tooltip rather than on screen: knowing what is
+ * playing is a nice thing to be able to find out and a distracting thing to be
+ * told continuously.
+ */
+function MusicControl({ audio, cue, onToggle, onLevel }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={S.musicWrap} onMouseLeave={() => setOpen(false)}>
+      <button onClick={onToggle} onFocus={() => setOpen(true)} onMouseEnter={() => setOpen(true)}
+        aria-pressed={audio.on} style={{ ...S.homeBtn, color: audio.on ? "var(--gold)" : "var(--muted)" }}
+        title={audio.on ? `Music on${cue ? ` — ${cue.name}` : ""}. Click to silence.` : "Music off. Click to play."}
+        aria-label={audio.on ? "Turn music off" : "Turn music on"}>
+        {audio.on ? "♪" : "♪̸"}
+      </button>
+      {open && audio.on && (
+        <div style={S.musicPop}>
+          {cue && <div style={S.musicCue}>{cue.name}</div>}
+          <input type="range" min="0" max="1" step="0.05" value={audio.level}
+            onChange={(e) => onLevel(Number(e.target.value))}
+            aria-label="Music volume" style={{ width: 110 }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 const Hstat = ({ label, value, tone }) => (
   <div style={{ minWidth: 90 }}>
     <div style={S.hlabel}>{label}</div>
@@ -1394,6 +1469,29 @@ function MarketIntel({ game, toId, shippingPerTonne }) {
 // ---------------------------------------------------------------------------
 // Orrery — with the player ship on it
 // ---------------------------------------------------------------------------
+/**
+ * The dark behind everything. Four paths for four hundred stars (starfield.js
+ * explains the trick), generated once and never again — a field that reshuffled
+ * on every clock tick would shimmer thirty times a second.
+ *
+ * Deliberately dim: the planets are the subject, and a starfield you actually
+ * notice is one that is competing with them.
+ */
+function Stars() {
+  const field = useMemo(() => starfield(VB), []);
+  const band = useMemo(() => galacticBand(VB), []);
+  return (
+    <g aria-hidden="true" pointerEvents="none">
+      <ellipse cx={band.cx} cy={band.cy} rx={band.rx} ry={band.ry} fill="url(#band)"
+        transform={`rotate(${band.rotate} ${band.cx} ${band.cy})`} />
+      {field.map((t) => (
+        <path key={t.id} d={t.d} stroke="#DCE6FF" strokeWidth={t.size} strokeOpacity={t.opacity}
+          strokeLinecap="round" fill="none" />
+      ))}
+    </g>
+  );
+}
+
 function Orrery({ positions, orbits, game, dest, onZoom }) {
   const opts = { cx: CX, cy: CY, radius: R, trueScale: false };
   const hereSys = siteOf(game, game.player.at)?.system;
@@ -1421,7 +1519,11 @@ function Orrery({ positions, orbits, game, dest, onZoom }) {
 
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img" aria-label="The solar system on the mission date">
-      <defs><radialGradient id="sun"><stop offset="0%" stopColor="#FFD98A" stopOpacity="0.9" /><stop offset="60%" stopColor="#F2B441" stopOpacity="0.1" /><stop offset="100%" stopColor="#F2B441" stopOpacity="0" /></radialGradient></defs>
+      <defs>
+        <radialGradient id="sun"><stop offset="0%" stopColor="#FFD98A" stopOpacity="0.9" /><stop offset="60%" stopColor="#F2B441" stopOpacity="0.1" /><stop offset="100%" stopColor="#F2B441" stopOpacity="0" /></radialGradient>
+        <radialGradient id="band"><stop offset="0%" stopColor="#8FA6D8" stopOpacity="0.10" /><stop offset="100%" stopColor="#8FA6D8" stopOpacity="0" /></radialGradient>
+      </defs>
+      <Stars />
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => (
         <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.5" />
       ))}
@@ -1583,7 +1685,10 @@ function Toast({ toast, onDone }) {
 const S = {
   app: { height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" },
   hud: { display: "flex", alignItems: "center", gap: 16, padding: "10px 18px", borderBottom: "1px solid var(--line)", background: "var(--panel)" },
-  homeBtn: { textDecoration: "none", color: "var(--muted)", fontSize: 18, border: "1px solid var(--line)", borderRadius: 8, padding: "3px 10px", background: "var(--panel-2)" },
+  homeBtn: { textDecoration: "none", color: "var(--muted)", fontSize: 18, border: "1px solid var(--line)", borderRadius: 8, padding: "3px 10px", background: "var(--panel-2)", cursor: "pointer" },
+  musicWrap: { position: "relative" },
+  musicPop: { position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 30, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 8px 26px rgba(0,0,0,0.5)" },
+  musicCue: { fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap", letterSpacing: 0.4 },
   capName: { fontSize: 16, fontWeight: 700, letterSpacing: 0.3 },
   sub: { fontSize: 12, color: "var(--muted)" },
   hudStats: { display: "flex", gap: 16, marginLeft: "auto" },
