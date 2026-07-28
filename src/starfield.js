@@ -47,15 +47,15 @@ export const TIERS = [
  *
  * Returns [{ id, size, opacity, d }] — one SVG path string per tier.
  */
-export function starfield(size = 1000, seed = 20350101, avoid = 120) {
+export function starfield(size = 1000, seed = 20350101, avoid = 120, height = size) {
   return withSeed(seed, () => {
-    const cx = size / 2, cy = size / 2;
+    const cx = size / 2, cy = height / 2;
     return TIERS.map((tier) => {
       const parts = [];
       let guard = 0;
       while (parts.length < tier.count && guard < tier.count * 40) {
         guard++;
-        const x = rand() * size, y = rand() * size;
+        const x = rand() * size, y = rand() * height;
         const dx = x - cx, dy = y - cy;
         const r = Math.sqrt(dx * dx + dy * dy);
         // Thin toward the middle rather than cutting a hole in it.
@@ -75,8 +75,8 @@ export function starfield(size = 1000, seed = 20350101, avoid = 120) {
  * the geometry of a rotated ellipse so the caller can paint it with whatever
  * gradient it likes.
  */
-export function galacticBand(size = 1000) {
-  return { cx: size / 2, cy: size * 0.42, rx: size * 0.78, ry: size * 0.13, rotate: -24 };
+export function galacticBand(size = 1000, height = size) {
+  return { cx: size / 2, cy: height * 0.42, rx: size * 0.78, ry: height * 0.13, rotate: -24 };
 }
 
 /**

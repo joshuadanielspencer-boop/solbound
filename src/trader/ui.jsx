@@ -30,11 +30,13 @@
 // focus behaviour, so the bubble opens for a player who is tabbing.
 // ===========================================================================
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // The three formatters every screen needs. They lived in play.jsx and are now
 // shared, because a panel that formats money differently from the HUD above it
 // is the kind of small wrongness nobody can quite name.
+export const HOVER_DELAY_MS = 160;
+
 export const money = (n) => "$" + Math.round(n).toLocaleString();
 export const fmtDate = (t) =>
   new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
@@ -112,8 +114,21 @@ const toneColor = (tone) =>
  */
 export function InfoRow({ info, children, onActivate, selected, disabled }) {
   const [open, setOpen] = useState(false);
-  const show = () => info && setOpen(true);
-  const hide = () => setOpen(false);
+  // A SHORT DELAY BEFORE THE BUBBLE OPENS. With none, dragging the cursor across
+  // a list fired every description on the way past, which is a strobe rather
+  // than a hover. 160ms is long enough that crossing a row does nothing and
+  // short enough that pointing AT one feels immediate. Leaving hides at once —
+  // a delay on the way out would leave bubbles hanging over what you clicked.
+  const timer = useRef(null);
+  const show = () => {
+    if (!info || timer.current) return;
+    timer.current = setTimeout(() => { timer.current = null; setOpen(true); }, HOVER_DELAY_MS);
+  };
+  const hide = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    setOpen(false);
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const clickable = !!onActivate && !disabled;
   return (
     <div

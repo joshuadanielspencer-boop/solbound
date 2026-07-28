@@ -14,7 +14,12 @@
 //   🔧 Yard      → Repair · Drive · Modules · Crew · Ships · Escape pod
 //   🧭 Course    → (list of destinations) → one destination
 //   ⚖ Standing  → (list of factions) → one faction
-//   🗺 Atlas     → (list of systems) → one system
+//
+// THE ATLAS IS NOT A TAB. It used to be a fifth menu — a list of systems you
+// opened to read about places you were looking at on the map two feet to the
+// left. Now clicking a planet opens that system on the map AND puts its atlas
+// here, so the words and the picture are the same act. It also takes a whole
+// menu of text off the screen, which was the point.
 //
 // Every menu button carries the number you would have gone in to read, so most
 // of the time you do not have to: "Market — 4 worth carrying", "Crew — $320/day",
@@ -67,8 +72,7 @@ export default function Panel({ game, mode, dest, setDest, actions }) {
   if (mode === "dock") return <Dock game={game} screen={screen} go={setScreen} back={back} actions={actions} />;
   if (mode === "yard") return <Yard game={game} screen={screen} go={setScreen} back={back} actions={actions} />;
   if (mode === "travel") return <Course game={game} dest={dest} setDest={setDest} actions={actions} />;
-  if (mode === "standing") return <Standing game={game} screen={screen} go={setScreen} back={back} />;
-  return <Atlas game={game} screen={screen} go={setScreen} back={back} />;
+  return <Standing game={game} screen={screen} go={setScreen} back={back} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +84,12 @@ function Dock({ game, screen, go, back, actions }) {
   const site = siteOf(game, p.at);
   const market = game.markets[p.at];
   const info = systemInfo(game, p.at);
-  const rows = listing(market, site, { includeUntraded: true });
-  const traded = rows.filter((r) => r.traded);
+  // NOTHING A PORT DOES NOT TRADE. Listing them taught what a place cannot get,
+  // and it also put six dead rows in front of a player trying to find the live
+  // ones — Joshua's call, and the right one: a thing you cannot act on is not a
+  // choice. What you cannot AFFORD still shows, because that is a choice.
+  const rows = listing(market, site);
+  const traded = rows;
   const fp = fuelPrice(game);
   const news = generateNews(game);
   const paid = game.paperAt === p.at;
@@ -107,7 +115,7 @@ function Dock({ game, screen, go, back, actions }) {
       ]} />
 
       <NavButton icon="⚖" label="Market" onClick={() => go("market")}
-        note={`${traded.length} traded · ${rows.length - traded.length} not sold here`}
+        note={`${traded.length} good${traded.length === 1 ? "" : "s"} on the shelves`}
         value={worth ? `${worth} worth carrying` : "nothing cheap"} tone={worth ? "gold" : undefined} />
       <NavButton icon="⛽" label="Propellant" onClick={() => go("fuel")}
         note={fp ? `${money(fp)} a tonne here` : "not sold at this port"}
@@ -137,14 +145,6 @@ function MarketScreen({ game, rows, back, actions }) {
       hint={`◆ made here · ○ imported · ${money(p.credits)} · ${cargoFree(p).toFixed(0)} t free`}>
       {rows.map((r) => {
         const held = p.cargo[r.id] || 0;
-        if (!r.traded) {
-          return (
-            <InfoRow key={r.id} info={r.why} disabled>
-              <RowMain name={r.name} sub={TIERS[r.tier].name} />
-              <RowValue top="not traded here" />
-            </InfoRow>
-          );
-        }
         const bp = buyPrice(p, market, site, r.id), sp = sellPrice(p, market, site, r.id);
         const cost = Math.round(p.costBasis?.[r.id] || 0);
         const on = sel === r.id;
@@ -382,7 +382,7 @@ function DriveScreen({ game, back, actions }) {
   return (
     <Screen title="Drive" onBack={back}
       hint={`${current.name} · trade-in ${money(driveTradeIn(p.ship.drive))}`}>
-      {rows.map(({ drive: d, owned, net, canBuy, reason }) => (
+      {rows.filter(({ drive: d, owned }) => d.forSale || owned).map(({ drive: d, owned, net, canBuy, reason }) => (
         <InfoRow key={d.id} info={reason || d.note} selected={owned} disabled={!d.forSale && !owned}>
           <RowMain
             name={d.name}
@@ -394,10 +394,8 @@ function DriveScreen({ game, back, actions }) {
             sub={`${d.isp} s exhaust · ${d.trajectory}${d.forSale && !owned ? ` · needs a ${TECH_LEVELS[d.minTech]?.name.toLowerCase()} yard` : ""}`}
           />
           {owned ? <RowValue top="—" />
-            : d.forSale
-              ? <button style={{ ...ST.buy, opacity: canBuy ? 1 : 0.4 }} disabled={!canBuy}
-                  onClick={() => actions.buyDrive(d.id)}>{net >= 0 ? money(net) : `+${money(-net)}`}</button>
-              : <RowValue top="not sold" />}
+            : <button style={{ ...ST.buy, opacity: canBuy ? 1 : 0.4 }} disabled={!canBuy}
+                onClick={() => actions.buyDrive(d.id)}>{net >= 0 ? money(net) : `+${money(-net)}`}</button>}
         </InfoRow>
       ))}
       <Footnote>
@@ -405,6 +403,16 @@ function DriveScreen({ game, back, actions }) {
         charges exponentially, and an era doubles the base you are exponentiating against.
         {current.boilOffPerDay > 0 && <> A year of coasting leaves <b>{Math.round(yearKept * 100)}%</b> of
           whatever is still in the tank.</>}
+      </Footnote>
+      {/* The ion drive and the fusion torch are no longer listed — nobody sells
+          them, and an unbuyable row is not a choice. The reasons are worth
+          keeping, because they are two different kinds of "no". */}
+      <Footnote>
+        Two more eras exist and neither is for sale. An <b>ion drive</b> is real and flown, but its
+        whole payoff is that it spirals instead of burning, so launch windows stop mattering — and
+        this game's travel model has no windows yet for it to make irrelevant. A <b>fusion torch</b>
+        nobody sells because nobody can build one: 1 g across 1 AU costs about 2,400 km/s, which
+        demands a mass ratio near 5×10¹⁰. That is not an engineering gap, it is a wall.
       </Footnote>
     </Screen>
   );
@@ -426,13 +434,17 @@ function ModulesScreen({ game, back, actions }) {
           </InfoRow>
         );
       })}
-      {mods.filter((m) => !m.fitted).map(({ module: m, canFit, slotsFree, slotKind }) => (
+      {/* A module whose bay this hull does not HAVE is not a choice — the Courier
+          can never mount a shield. One whose bay is merely full still shows,
+          because removing something is a decision you can make. */}
+      {mods.filter((m) => !m.fitted && slots.total[m.module.slot] > 0)
+        .map(({ module: m, canFit, slotsFree, slotKind }) => (
         <InfoRow key={m.id} info={m.note} disabled={slotsFree <= 0}>
           <RowMain name={`${m.emoji} ${m.name}`} sub={`${slotKind.name.toLowerCase()} bay · ${money(m.price)}`} />
           <button style={{ ...ST.buy, opacity: canFit ? 1 : 0.4 }} disabled={!canFit}
-            onClick={() => actions.fit(m.id)}>{slotsFree <= 0 ? "No bay" : "Fit"}</button>
+            onClick={() => actions.fit(m.id)}>{slotsFree <= 0 ? "Bay full" : "Fit"}</button>
         </InfoRow>
-      ))}
+        ))}
       <Footnote>Every module adds dry mass, so a fully fitted ship costs more Δv to move. The trade never goes away.</Footnote>
     </Screen>
   );
@@ -692,46 +704,44 @@ function FactionScreen({ game, row, back }) {
 }
 
 // ---------------------------------------------------------------------------
-// ATLAS
+// THE ATLAS, attached to the map
 // ---------------------------------------------------------------------------
 
-function Atlas({ game, screen, go, back }) {
-  const groups = atlasFor(game);
+/**
+ * What is really in the system you just clicked on.
+ *
+ * This is the old Atlas tab, moved. It appears beside the system view rather
+ * than in a menu of its own, so the place you are reading about is the place you
+ * are looking at — and the fifth tab of text is gone from the panel entirely.
+ */
+export function SystemAtlas({ game, systemId, onBack }) {
+  const group = atlasFor(game).find((g) => g.system.id === systemId);
   const { known, total } = atlasProgress(game);
-  const one = screen && groups.find((g) => g.system.id === screen);
   const hasLab = fittedStats(game.player.ship.hull, game.player.ship.modules).canSurvey;
-
-  if (one) {
-    return (
-      <Screen title={one.system.name} onBack={back}
-        hint={one.surveyed ? "Surveyed — every place here is charted" : "Not fully surveyed"}>
-        {one.places.map(({ place, revealed, feature, site, visited }) => (
-          <InfoRow key={place.id} info={revealed ? place.why : "Dock here, or arrive anywhere in this system with a survey lab fitted, to chart it."}
-            disabled={!revealed}>
-            <RowMain name={revealed ? place.name : "???"}
-              tags={visited ? <Tag tone="ok">visited</Tag> : null}
-              sub={revealed ? (feature ? "landmark" : site ? site.name : "unoccupied") : (feature ? "landmark — survey to chart" : "unsurveyed")} />
-          </InfoRow>
-        ))}
-      </Screen>
-    );
-  }
-
+  if (!group) return null;
+  const charted = group.places.filter((x) => x.revealed).length;
   return (
-    <Screen title="Atlas" hint={`${known} of ${total} real places charted${hasLab ? " · survey lab aboard" : ""}`}>
-      {groups.map(({ system, surveyed, places }) => {
-        const n = places.filter((p) => p.revealed).length;
-        return (
-          <InfoRow key={system.id} info={`${n} of ${places.length} places charted here. Docking charts a place; arriving with a survey lab charts the whole system.`}
-            onActivate={() => go(system.id)}>
-            <RowMain name={system.name} tags={surveyed ? <Tag tone="ok">surveyed</Tag> : null}
-              sub={`${places.length} real place${places.length === 1 ? "" : "s"}`} />
-            <RowValue top={`${n}/${places.length}`} tone={n === places.length ? "ok" : undefined} />
-          </InfoRow>
-        );
-      })}
+    <Screen title={group.system.name} onBack={onBack}
+      hint={`${charted} of ${group.places.length} places charted here · ${known}/${total} in all`}>
+      {group.places.map(({ place, revealed, feature, site, visited }) => (
+        <InfoRow key={place.id}
+          info={revealed ? place.why
+            : "Dock here, or arrive anywhere in this system with a survey lab fitted, to chart it."}
+          disabled={!revealed}>
+          <RowMain name={revealed ? place.name : "???"}
+            tags={<>
+              {visited && <Tag tone="ok">visited</Tag>}
+              {group.surveyed && !visited && <Tag>surveyed</Tag>}
+            </>}
+            sub={revealed
+              ? (feature ? "landmark — nobody can build here" : site ? site.name : "unoccupied")
+              : (feature ? "landmark — survey to chart" : "unsurveyed")} />
+        </InfoRow>
+      ))}
       <Footnote>
-        Every entry is a real place, and every reason is a real reason. A finished run is a finished map.
+        Every entry is a real place and every reason is a real reason. Docking charts one;
+        arriving anywhere in a system with a <b>survey lab</b> charts all of
+        it{hasLab ? " — yours is aboard." : ", and you do not carry one."}
       </Footnote>
     </Screen>
   );

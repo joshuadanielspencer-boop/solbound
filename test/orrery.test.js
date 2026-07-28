@@ -50,6 +50,39 @@ describe("the compression is a simplification, not a falsehood", () => {
     expect(b.x).toBeCloseTo(500, 6);
   });
 
+  // The map is turned so Pluto's long axis lies along the wide side of the
+  // frame. That is allowed ONLY because it preserves every angle between two
+  // bodies — which is the same reason the log compression is allowed to touch
+  // radius. If rotation ever changed a separation, every window and opposition
+  // the game teaches would be wrong.
+  it("turning the whole map preserves every angle between bodies", () => {
+    const sep = (rotate) => {
+      const a = project(1, 30, { ...OPTS, rotate });
+      const b = project(1, 115, { ...OPTS, rotate });
+      const ang = (p) => (Math.atan2(500 - p.y, p.x - 500) * 180) / Math.PI;
+      // atan2 wraps at ±180, so the raw difference jumps a whole turn depending
+      // on where the rotation happens to land the pair. Normalise it, or the
+      // test measures the branch cut rather than the separation.
+      return ((((ang(b) - ang(a)) % 360) + 540) % 360) - 180;
+    };
+    expect(sep(135.93)).toBeCloseTo(sep(0), 9);
+    expect(sep(0)).toBeCloseTo(85, 9);
+    // and it still runs anticlockwise after the turn
+    const p0 = project(1, 0, { ...OPTS, rotate: 135.93 });
+    const p90 = project(1, 90, { ...OPTS, rotate: 135.93 });
+    const cross = (p0.x - 500) * (500 - p90.y) - (500 - p0.y) * (p90.x - 500);
+    expect(cross).toBeGreaterThan(0);
+  });
+
+  it("puts Pluto's aphelion on the horizontal, which is what buys the room", () => {
+    // Pluto's longitude of perihelion is 224.07°, so aphelion sits at 44.07°.
+    // Turned by 135.93° that lands at 180° — straight out to the left, along
+    // the wide axis of the frame.
+    const aph = project(49.31, 44.07, { ...OPTS, rotate: 135.93, trueScale: true, maxAU: 38.24 });
+    expect(aph.y).toBeCloseTo(500, 3);         // dead level with the Sun
+    expect(aph.x).toBeLessThan(500);           // and to the left of it
+  });
+
   it("never reorders the planets", () => {
     for (const scale of [logRadius, linearRadius]) {
       for (let i = 1; i < ORDER.length; i++) {
@@ -69,6 +102,16 @@ describe("the compression is a simplification, not a falsehood", () => {
 });
 
 describe("true scale is actually true", () => {
+  it("does not clamp — a body past the scale distance projects past the rim", () => {
+    // The clamp used to pin anything beyond maxAU to the rim and freeze it
+    // there, which looked tidy and lied about where Pluto was. The true view
+    // frames an ELLIPSE now, so the caller picks a scale and the far half of
+    // Pluto's orbit legitimately reaches further out than that scale distance.
+    const r = (au) => project(au, 0, { ...OPTS, trueScale: true, maxAU: 38.24 }).R;
+    expect(r(49.31)).toBeGreaterThan(OPTS.radius);
+    expect(r(49.31) / r(38.24)).toBeCloseTo(49.31 / 38.24, 9);
+  });
+
   it("is exactly linear in AU — the honest view cannot be approximately honest", () => {
     const r = (au) => project(au, 0, { ...OPTS, trueScale: true }).R;
     expect(r(2) / r(1)).toBeCloseTo(2, 9);
@@ -111,11 +154,11 @@ describe("true scale is actually true", () => {
     expect(ratio(41)).toBeCloseTo(AU.neptune / AU.earth, 9);
   });
 
-  it("scaling to the outermost body puts it on the rim, not three-quarters out", () => {
-    const pinned = project(AU.pluto, 0, { ...OPTS, trueScale: true, maxAU: 50 }).R;
-    const filled = project(AU.pluto, 0, { ...OPTS, trueScale: true, maxAU: AU.pluto * 1.015 }).R;
-    expect(pinned / OPTS.radius).toBeLessThan(0.82);        // the old wasted frame
-    expect(filled / OPTS.radius).toBeGreaterThan(0.97);     // and the new one
+  it("laying the long axis flat is worth about a third more scale", () => {
+    // Long axis vertical: half the height has to hold the full aphelion, 49.31 AU.
+    // Long axis horizontal: it only has to hold the semi-minor axis, 38.24 AU.
+    const upright = 468 / 49.31, flat = 468 / 38.24;
+    expect(flat / upright).toBeGreaterThan(1.28);
   });
 
   it("the caption's miles-per-pixel follows the divisor it was given", () => {

@@ -22,7 +22,7 @@ import { createMusic, contextOf, loadAudioPref } from "../audio.js";
 import { starfield, galacticBand, skySeed, beltScatter } from "../starfield.js";
 import { hireCrew, dismissCrew } from "../crew.js";
 import { FaceOff } from "./ships.jsx";
-import Panel from "./panels.jsx";
+import Panel, { SystemAtlas } from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
@@ -32,13 +32,33 @@ import {
   wait, rangeReport,
 } from "../tradergame.js";
 
-// R is how far out the outermost orbit is drawn, in viewBox units. It has gone
-// 360 → 448 → 472 as the map earned the room: the target is a DESKTOP WINDOW
-// (design.md rule 4, and phones and tablets are now explicitly out of scope), so
-// the board may use what it has. 472 puts Pluto's orbit within about 28 units of
-// the frame, which is exactly enough for its label and nothing more — and Pluto
-// is the only body that ever gets out there, so nothing else pays for the space.
-const VB = 1000, CX = 500, CY = 500, R = 472, DAY = 86400000;
+// THE BOARD IS WIDER THAN IT IS TALL, because the stage it sits in is. A square
+// viewBox letterboxed itself on every desktop window and left a third of the
+// screen empty on each side. 1350×1000 is close to the stage's own shape, so the
+// map fills it.
+const VBW = 1350, VBH = 1000, CX = VBW / 2, CY = VBH / 2, R = 472, DAY = 86400000;
+
+// AND THE WHOLE MAP IS TURNED, which is what buys the width back.
+//
+// Pluto's orbit is the one that decides how big anything can be drawn: it is
+// eccentric enough (e = 0.249) that its aphelion reaches 49.3 AU while its
+// perihelion is only 29.7. Laid out with that long axis VERTICAL, the true-scale
+// view has to fit 49.3 AU into half the height. Laid along the wide direction
+// instead, the vertical requirement drops to the semi-minor axis — 38.2 AU — and
+// everything can be drawn about a third larger.
+//
+// Pluto's longitude of perihelion is 224.07°, so its aphelion lies at 44.07°.
+// Turning the map by 135.93° puts that aphelion at screen-left. Rotation changes
+// nothing the map claims: every angle BETWEEN two bodies is preserved, and the
+// map never asserts which way ecliptic zero points.
+const MAP_ROTATION = 135.93;
+
+// The true-scale fit, worked out from Pluto's real elements (a = 39.482 AU,
+// e = 0.2488): 12.238 viewBox units per AU puts its full ellipse inside the
+// frame with the semi-minor axis just touching top and bottom.
+const TRUE_AU_AT_R = 38.24;          // AU that maps to R — the semi-minor axis
+const TRUE_SUN_DX = 120;             // the Sun is a FOCUS, not the centre: shift
+                                     // it so the ellipse sits centred in frame
 // True-scale view only: anything drawn nearer the Sun than this is part of the
 // inner cluster and gets its name in the side legend instead of on its dot.
 // 100 units catches everything in through Saturn, which is where the pile-up is.
@@ -180,16 +200,6 @@ export default function Play({ game, setGame, onQuit }) {
     for (const s of SYSTEMS) if (s.ephemerisKey) o[s.id] = heliocentric(s.ephemerisKey, new Date(game.t));
     return o;
   }, [game.t]);
-  // THE TRUE-SCALE VIEW FILLS THE BOARD. Pinned to a fixed 50 AU it spent a
-  // quarter of the frame on the empty ring outside Pluto. Scaling to whatever is
-  // actually outermost right now costs nothing in honesty — every ratio between
-  // two bodies is identical whatever the divisor, and that is the only property
-  // this view exists to show. Computed here so the map and the caption under it
-  // can never disagree about what a pixel is worth.
-  const maxAU = useMemo(() => {
-    const rs = Object.values(positions).map((p) => p.r);
-    return rs.length ? Math.max(...rs) * 1.015 : 50;
-  }, [positions]);
   const orbits = useMemo(() => {
     const o = {};
     for (const s of SYSTEMS) {
@@ -280,8 +290,8 @@ export default function Play({ game, setGame, onQuit }) {
                 }} />
             : <>
                 <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
-                  onZoom={(id) => setZoom(id)} trueScale={trueScale} maxAU={maxAU} />
-                <ScaleToggle on={trueScale} onToggle={() => setTrueScale((v) => !v)} maxAU={maxAU} />
+                  onZoom={(id) => setZoom(id)} trueScale={trueScale} />
+                <ScaleToggle on={trueScale} onToggle={() => setTrueScale((v) => !v)} />
               </>}
         </div>
         <aside style={S.panel} aria-live="polite">
@@ -289,6 +299,11 @@ export default function Play({ game, setGame, onQuit }) {
             <GameOver game={game} onQuit={onQuit} />
           ) : game.encounter ? (
             <EncounterPanel game={game} onChoose={doChoose} onDismiss={doDismiss} />
+          ) : zoom ? (
+            // THE MAP AND THE PANEL MOVE TOGETHER. Clicking a planet opens its
+            // system on the map and its atlas here, so what you are reading
+            // about is what you are looking at. Backing out returns both.
+            <SystemAtlas game={game} systemId={zoom} onBack={() => setZoom(null)} />
           ) : transit ? (
             <TransitPanel game={game} />
           ) : (
@@ -298,7 +313,6 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "yard" ? S.tabOn : null) }} onClick={() => setMode("yard")}>🔧 Yard</button>
                 <button style={{ ...S.tab, ...(mode === "travel" ? S.tabOn : null) }} onClick={() => setMode("travel")}>🧭 Course</button>
                 <button style={{ ...S.tab, ...(mode === "standing" ? S.tabOn : null) }} onClick={() => setMode("standing")}>⚖ Standing</button>
-                <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
               <Panel game={game} mode={mode} dest={dest} setDest={setDest} actions={actions} />
             </>
@@ -731,8 +745,8 @@ function NextStep({ game }) {
  * notice is one that is competing with them.
  */
 function Stars({ seed = 20350101, avoid = 120 }) {
-  const field = useMemo(() => starfield(VB, seed, avoid), [seed, avoid]);
-  const band = useMemo(() => galacticBand(VB), []);
+  const field = useMemo(() => starfield(VBW, seed, avoid, VBH), [seed, avoid]);
+  const band = useMemo(() => galacticBand(VBW, VBH), []);
   return (
     <g aria-hidden="true" pointerEvents="none">
       <ellipse cx={band.cx} cy={band.cy} rx={band.rx} ry={band.ry} fill="url(#band)"
@@ -758,8 +772,8 @@ function Stars({ seed = 20350101, avoid = 120 }) {
  * something the playable one cannot: that the solar system is almost entirely
  * nothing, and that "far" and "hard" are different words.
  */
-function ScaleToggle({ on, onToggle, maxAU }) {
-  const facts = trueScaleFacts(R, maxAU);
+function ScaleToggle({ on, onToggle }) {
+  const facts = trueScaleFacts(R, TRUE_AU_AT_R);
   return (
     <div style={S.scaleWrap}>
       <button onClick={onToggle} aria-pressed={on} style={{ ...S.scaleBtn, ...(on ? S.scaleBtnOn : null) }}
@@ -774,8 +788,10 @@ function ScaleToggle({ on, onToggle, maxAU }) {
   );
 }
 
-function Orrery({ positions, orbits, game, dest, onZoom, trueScale, maxAU }) {
-  const opts = { cx: CX, cy: CY, radius: R, trueScale, maxAU };
+function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
+  const opts = trueScale
+    ? { cx: CX + TRUE_SUN_DX, cy: CY, radius: R, trueScale: true, maxAU: TRUE_AU_AT_R, rotate: MAP_ROTATION }
+    : { cx: CX, cy: CY, radius: R, trueScale: false, rotate: MAP_ROTATION };
   // At true scale everything shrinks toward the middle, so the Sun's furniture
   // and the planet dots have to shrink with it or they swallow the inner system
   // whole. Positions stay exact; only the SYMBOLS get smaller, which is the same
@@ -810,7 +826,7 @@ function Orrery({ positions, orbits, game, dest, onZoom, trueScale, maxAU }) {
   const shipXY = ship ? project(ship.r, ship.lon, opts) : null;
 
   return (
-    <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img" aria-label="The solar system on the mission date">
+    <svg viewBox={`0 0 ${VBW} ${VBH}`} style={S.svg} role="img" aria-label="The solar system on the mission date">
       <defs>
         {/* THE SUN IN THREE LAYERS. It was one flat gold disc inside one flat
             gold glow, which read as a coin rather than as the only thing out
@@ -838,14 +854,14 @@ function Orrery({ positions, orbits, game, dest, onZoom, trueScale, maxAU }) {
       </defs>
       <Stars />
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => (
-        <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.5" />
+        <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.26" />
       ))}
       {/* Doubled: the core and corona were a coin at this board size. The haze is
           scaled less than double on purpose — at 264 units it reached past Mars
           and washed the inner planets out, which is the opposite of the point. */}
-      <circle cx={CX} cy={CY} r={186 * sunK} fill="url(#sunHaze)" />
-      <circle cx={CX} cy={CY} r={80 * sunK} fill="url(#sunCorona)" />
-      <circle cx={CX} cy={CY} r={26 * sunK} fill="url(#sunCore)" />
+      <circle cx={opts.cx} cy={opts.cy} r={186 * sunK} fill="url(#sunHaze)" />
+      <circle cx={opts.cx} cy={opts.cy} r={80 * sunK} fill="url(#sunCorona)" />
+      <circle cx={opts.cx} cy={opts.cy} r={26 * sunK} fill="url(#sunCore)" />
       {arc && <path d={arc} fill="none" stroke="var(--gold)" strokeWidth="2" strokeDasharray="5 6" strokeOpacity={transit ? 0.9 : 0.6} />}
 
       {/* THE MAP IS A CONTROL NOW, NOT A PICTURE. Space Trader's chart was how
@@ -961,7 +977,7 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
   const atPlanet = sites.filter((s) => !bodies.some((b) => b.id === s.body));
 
   return (
-    <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img"
+    <svg viewBox={`0 0 ${VBW} ${VBH}`} style={S.svg} role="img"
       aria-label={`${sys?.name}: ${bodies.length} charted bodies, ${sites.length} ports.`}>
       <defs>
         <radialGradient id="sysSunCore">

@@ -35,16 +35,20 @@ export const logRadius = (au) => Math.log(1 + au / K) / Math.log(1 + R_MAX / K);
 /**
  * The honest one, for the scale toggle.
  *
- * `maxAU` is what gets mapped to the outer edge, and it is a parameter rather
- * than the fixed R_MAX because the true-scale view should FILL the board. Pinned
- * at 50 AU, Pluto sat three-quarters of the way out with a wide empty ring
- * around it — a quarter of the frame spent on nothing. Scaling to whatever is
- * currently outermost costs no honesty at all: every ratio between two bodies is
- * identical whatever the divisor, which is the entire property that makes this
- * view worth having. What changes is the miles-per-pixel figure, and the view
- * states that figure on screen rather than assuming it.
+ * `maxAU` is the distance that maps to `radius`. It is NOT a ceiling — anything
+ * further projects further out, on purpose, because the true-scale view frames
+ * Pluto's whole ellipse rather than a circle and the caller picks the scale that
+ * makes it fit. Clamping here silently pinned Pluto to the rim and froze it
+ * there, which looked tidy and was a lie about where it was.
+ *
+ * It is a parameter rather than the fixed R_MAX because the true-scale view
+ * should FILL the board. Choosing the scale costs no honesty at all: every ratio
+ * between two bodies is identical whatever the divisor, which is the entire
+ * property that makes this view worth having. What changes is the
+ * miles-per-pixel figure, and the view states that figure on screen rather than
+ * assuming it.
  */
-export const linearRadius = (au, maxAU = R_MAX) => Math.min(1, au / maxAU);
+export const linearRadius = (au, maxAU = R_MAX) => au / maxAU;
 
 /**
  * Polar (AU, ecliptic longitude) → SVG point.
@@ -54,10 +58,14 @@ export const linearRadius = (au, maxAU = R_MAX) => Math.min(1, au / maxAU);
  * the Sun's north pole. Getting this backwards would draw a solar system that
  * looks perfect and runs in reverse.
  */
-export function project(au, lonDeg, { cx, cy, radius, trueScale = false, maxAU = R_MAX }) {
+export function project(au, lonDeg, { cx, cy, radius, trueScale = false, maxAU = R_MAX, rotate = 0 }) {
   const t = trueScale ? linearRadius(au, maxAU) : logRadius(au);
   const R = t * radius;
-  const a = (lonDeg * Math.PI) / 180;
+  // `rotate` turns the whole map. It changes nothing true — every angle BETWEEN
+  // two bodies is preserved, which is all the map ever claims — and it buys real
+  // room: laying Pluto's major axis along the wide direction of the frame rather
+  // than the narrow one is worth about a third more scale in the true view.
+  const a = ((lonDeg + rotate) * Math.PI) / 180;
   return { x: cx + R * Math.cos(a), y: cy - R * Math.sin(a), R };
 }
 
