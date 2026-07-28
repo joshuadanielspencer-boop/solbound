@@ -276,7 +276,7 @@ const S = {
   tag: { fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.6, borderWidth: "1px", borderStyle: "solid", borderRadius: 9, padding: "1px 6px", whiteSpace: "nowrap" },
 
   strip: { display: "flex", flexWrap: "wrap", gap: 14, padding: "2px 0 8px" },
-  stripItem: { minWidth: 62 },
+  stripItem: { minWidth: 62, maxWidth: 118 },
   stripLabel: { fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)" },
   stripValue: { fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums", marginTop: 1 },
 

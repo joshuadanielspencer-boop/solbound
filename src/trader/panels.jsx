@@ -107,11 +107,20 @@ function Dock({ game, screen, go, back, actions }) {
 
   return (
     <Screen title={site.name} hint={`${info?.tech.name} · ${info?.gov.type} · pop. ${info?.population.toLocaleString()}`}>
+      {/* Labels a player can read without being told what they mean. "In reach"
+          and "Per day" were shorthand for my own benefit — the first is how many
+          ports you could launch for right now, the second was a wage bill. */}
       <StatStrip items={[
-        { label: "Hold", value: `${cargoUsed(p).toFixed(0)}/${cargoCapacity(p).toFixed(0)} t` },
-        { label: "Fuel", value: `${p.ship.fuelTonnes.toFixed(0)}/${tankMax(p).toFixed(0)} t`, tone: p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined },
-        { label: "In reach", value: `${range.now}/${range.total}`, tone: range.now ? undefined : "hot" },
-        { label: "Per day", value: dailyCost(game) ? money(dailyCost(game)) : "—", tone: dailyCost(game) ? "hot" : undefined },
+        { label: "Cargo hold", value: `${cargoUsed(p).toFixed(0)}/${cargoCapacity(p).toFixed(0)} t`,
+          hint: "Tonnes aboard, out of what this ship can carry" },
+        { label: "Propellant", value: `${p.ship.fuelTonnes.toFixed(0)}/${tankMax(p).toFixed(0)} t`,
+          tone: p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined,
+          hint: "Tonnes in the tank, out of what it holds" },
+        { label: "Ports you can reach", value: `${range.now} of ${range.total}`, tone: range.now ? undefined : "hot",
+          hint: "How many ports you could launch for on the propellant aboard. A fuller hold reaches fewer." },
+        { label: "Crew wages", value: dailyCost(game) ? `${money(dailyCost(game))}/day` : "none",
+          tone: dailyCost(game) ? "hot" : undefined,
+          hint: "Paid every day, whether the ship is earning or not" },
       ]} />
 
       <NavButton icon="⚖" label="Market" onClick={() => go("market")}
