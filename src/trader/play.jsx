@@ -9,7 +9,7 @@
 // ===========================================================================
 import { useEffect, useMemo, useRef, useState } from "react";
 import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
-import { project, orbitPath, sayLightTime } from "../orrery.js";
+import { project, orbitPath, sayLightTime, trueScaleFacts } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
 import { SYSTEMS, SYSTEM_BY_ID, MOONS, BELT_BODIES } from "../data/bodies.js";
 import { siteOf } from "../data/sites.js";
@@ -44,7 +44,16 @@ import {
   wait, rangeReport,
 } from "../tradergame.js";
 
-const VB = 1000, CX = 500, CY = 500, R = 360, DAY = 86400000;
+// R is how far out the outermost orbit is drawn, in viewBox units, and it was
+// 360 of a possible 500 — three-quarters of the frame, with a quarter of the
+// board left as margin for no reason. The target is a DESKTOP WINDOW (design.md
+// rule 4, and Joshua has since ruled phones and tablets out entirely), so the
+// map may use the room it has. 448 leaves just enough edge for Pluto's label.
+const VB = 1000, CX = 500, CY = 500, R = 448, DAY = 86400000;
+// True-scale view only: anything drawn nearer the Sun than this is part of the
+// inner cluster and gets its name in the side legend instead of on its dot.
+// 100 units catches everything in through Saturn, which is where the pile-up is.
+const CROWDED_PX = 100, LEGEND_X = 74;
 /** How fast the clock drifts while you are docked, in mission-days per real
  *  second. Slow enough to read a market under, fast enough that Earth visibly
  *  moves in ten seconds — a planet covers about a degree a day. */
@@ -61,6 +70,10 @@ export default function Play({ game, setGame, onQuit }) {
   const [toast, setToast] = useState(null);
   // Which system the map is inside, or null for the whole solar system.
   const [zoom, setZoom] = useState(null);
+  // The scale toggle. The playable map compresses distance logarithmically so
+  // the inner planets are legible; this is the honest picture, kept one click
+  // away rather than hidden (orrery.js explains why that matters).
+  const [trueScale, setTrueScale] = useState(false);
 
   const flash = (text, kind = "ok") => setToast({ text, kind });
   const transit = game.status === "transit";
@@ -258,8 +271,11 @@ export default function Play({ game, setGame, onQuit }) {
                   if (id === game.player.at) { setMode("dock"); return; }
                   setDest(id); setMode("travel");
                 }} />
-            : <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
-                onZoom={(id) => setZoom(id)} />}
+            : <>
+                <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
+                  onZoom={(id) => setZoom(id)} trueScale={trueScale} />
+                <ScaleToggle on={trueScale} onToggle={() => setTrueScale((v) => !v)} />
+              </>}
         </div>
         <aside style={S.panel} aria-live="polite">
           {game.over ? (
@@ -1492,8 +1508,43 @@ function Stars() {
   );
 }
 
-function Orrery({ positions, orbits, game, dest, onZoom }) {
-  const opts = { cx: CX, cy: CY, radius: R, trueScale: false };
+/**
+ * THE SCALE TOGGLE — the honest picture, one click away.
+ *
+ * The map you play on compresses radius logarithmically, because drawn to scale
+ * the four planets a beginner cares about most occupy the first fifteen pixels
+ * and overlap the Sun. That compression is a lie of convenience, and the rule
+ * this project holds itself to (design.md §16) is that where the game
+ * simplifies, it simplifies LEGIBLY and says so.
+ *
+ * So the truth is a button rather than a footnote — and the true view teaches
+ * something the playable one cannot: that the solar system is almost entirely
+ * nothing, and that "far" and "hard" are different words.
+ */
+function ScaleToggle({ on, onToggle }) {
+  const facts = trueScaleFacts(R);
+  return (
+    <div style={S.scaleWrap}>
+      <button onClick={onToggle} aria-pressed={on} style={{ ...S.scaleBtn, ...(on ? S.scaleBtnOn : null) }}
+        title={on ? "Back to the readable map" : "Show the planets at their true relative distances"}>
+        {on ? "◎ True distance" : "◉ Readable map"}
+      </button>
+      <div style={S.scaleNote}>
+        {on ? facts.note
+          : "Distance is compressed so the inner planets are legible — angles are exact, spacing is not."}
+      </div>
+    </div>
+  );
+}
+
+function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
+  const opts = { cx: CX, cy: CY, radius: R, trueScale };
+  // At true scale everything shrinks toward the middle, so the Sun's furniture
+  // and the planet dots have to shrink with it or they swallow the inner system
+  // whole. Positions stay exact; only the SYMBOLS get smaller, which is the same
+  // fudge the compressed view already makes and is stated on screen.
+  const sunK = trueScale ? 0.26 : 1;
+  const dotK = trueScale ? 0.42 : 1;
   const hereSys = siteOf(game, game.player.at)?.system;
   const transit = game.status === "transit";
   const destSys = transit ? siteOf(game, game.leg.to)?.system : (dest && siteOf(game, dest)?.system);
@@ -1520,14 +1571,37 @@ function Orrery({ positions, orbits, game, dest, onZoom }) {
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img" aria-label="The solar system on the mission date">
       <defs>
-        <radialGradient id="sun"><stop offset="0%" stopColor="#FFD98A" stopOpacity="0.9" /><stop offset="60%" stopColor="#F2B441" stopOpacity="0.1" /><stop offset="100%" stopColor="#F2B441" stopOpacity="0" /></radialGradient>
+        {/* THE SUN IN THREE LAYERS. It was one flat gold disc inside one flat
+            gold glow, which read as a coin rather than as the only thing out
+            here putting out light. A star is white-hot in the middle and the
+            colour is in the air around it, so: a white core, a gold corona,
+            and a wide soft haze that fades to nothing. */}
+        <radialGradient id="sunCore">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+          <stop offset="42%" stopColor="#FFF8E2" stopOpacity="1" />
+          <stop offset="78%" stopColor="#FFD873" stopOpacity="0.98" />
+          <stop offset="100%" stopColor="#F2B441" stopOpacity="0.8" />
+        </radialGradient>
+        <radialGradient id="sunCorona">
+          <stop offset="0%" stopColor="#FFF3CC" stopOpacity="0.85" />
+          <stop offset="45%" stopColor="#FFC957" stopOpacity="0.38" />
+          <stop offset="100%" stopColor="#F2B441" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="sunHaze">
+          <stop offset="0%" stopColor="#FFE39A" stopOpacity="0.30" />
+          <stop offset="40%" stopColor="#F2B441" stopOpacity="0.13" />
+          <stop offset="72%" stopColor="#F2B441" stopOpacity="0.04" />
+          <stop offset="100%" stopColor="#F2B441" stopOpacity="0" />
+        </radialGradient>
         <radialGradient id="band"><stop offset="0%" stopColor="#8FA6D8" stopOpacity="0.10" /><stop offset="100%" stopColor="#8FA6D8" stopOpacity="0" /></radialGradient>
       </defs>
       <Stars />
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => (
         <path key={s.id} d={orbitPath(orbits[s.id], opts)} fill="none" stroke="#26324a" strokeWidth="1" strokeOpacity="0.5" />
       ))}
-      <circle cx={CX} cy={CY} r="90" fill="url(#sun)" /><circle cx={CX} cy={CY} r="11" fill="#F2B441" />
+      <circle cx={CX} cy={CY} r={132 * sunK} fill="url(#sunHaze)" />
+      <circle cx={CX} cy={CY} r={40 * sunK} fill="url(#sunCorona)" />
+      <circle cx={CX} cy={CY} r={13 * sunK} fill="url(#sunCore)" />
       {arc && <path d={arc} fill="none" stroke="var(--gold)" strokeWidth="2" strokeDasharray="5 6" strokeOpacity={transit ? 0.9 : 0.6} />}
 
       {/* THE MAP IS A CONTROL NOW, NOT A PICTURE. Space Trader's chart was how
@@ -1535,12 +1609,17 @@ function Orrery({ positions, orbits, game, dest, onZoom }) {
           Click (or Enter/Space) a planet to go inside its system. Keyboard
           reachable because the map must not be mouse-only (project rule 4). */}
       {SYSTEMS.filter((s) => s.ephemerisKey).map((s) => {
-        const pos = positions[s.id]; const { x, y } = project(pos.r, pos.lon, opts);
+        const pos = positions[s.id]; const { x, y, R: Rpx } = project(pos.r, pos.lon, opts);
         const here = s.id === hereSys, isDest = s.id === destSys;
-        const r = dot(s.radiusKm, s.id === "pluto" ? 1.3 : 1);
+        const r = dot(s.radiusKm, s.id === "pluto" ? 1.3 : 1) * dotK;
         const held = game.factions?.some((fx) => fx.system === s.id);
         const ports = (game.sites || []).filter((x) => x.system === s.id).length;
         const label = `${s.name}${ports ? `, ${ports} port${ports === 1 ? "" : "s"}` : ", no ports"}. Open this system.`;
+        // At true scale the inner planets pile into the first few pixels, so
+        // their names go in the legend down the left instead (drawn below). A
+        // ring of leaders around the cluster was the first attempt and it
+        // turned "Mars" and "Venus" into "Marus".
+        const crowded = trueScale && Rpx < CROWDED_PX;
         return (
           <g key={s.id} role="button" tabIndex={0} aria-label={label} style={{ cursor: "pointer" }}
             onClick={() => onZoom(s.id)}
@@ -1550,13 +1629,45 @@ function Orrery({ positions, orbits, game, dest, onZoom }) {
             {here && !transit && <circle cx={x} cy={y} r={r + 12} fill="none" stroke="#F2B441" strokeWidth="1.5" strokeDasharray="3 4" />}
             {isDest && <circle cx={x} cy={y} r={r + 9} fill="none" stroke="var(--gold)" strokeWidth="2" />}
             <circle cx={x} cy={y} r={r} fill={s.color} stroke="#070A12" strokeWidth="1.5" />
-            <text x={x} y={y - r - 8} style={{ ...S.pin, fill: here || isDest ? "#fff" : "#B9C2D4" }}>
-              {s.name}{here && !transit ? " — you" : ""}{held ? " ◆" : ""}
-              {ports > 0 && <tspan style={{ fill: "var(--gold)" }}> ·{ports}</tspan>}
-            </text>
+            {!crowded && (
+              <text x={x} y={y - r - 8} style={{ ...S.pin, fill: here || isDest ? "#fff" : "#B9C2D4" }}>
+                {s.name}{here && !transit ? " — you" : ""}{held ? " ◆" : ""}
+                {ports > 0 && <tspan style={{ fill: "var(--gold)" }}> ·{ports}</tspan>}
+              </text>
+            )}
           </g>
         );
       })}
+
+      {/* THE INNER SYSTEM, NAMED DOWN THE SIDE. At true scale everything inside
+          Jupiter lands within about fifty pixels of the Sun, so the names cannot
+          live on the dots. Leaders all originate from nearly the same point and
+          fan left without crossing, which is why a legend works here and a ring
+          of callouts did not. */}
+      {trueScale && (
+        <g pointerEvents="none">
+          {SYSTEMS.filter((s) => s.ephemerisKey)
+            .map((s) => ({ s, p: project(positions[s.id].r, positions[s.id].lon, opts) }))
+            .filter(({ p }) => p.R < CROWDED_PX)
+            .sort((a, b) => a.p.R - b.p.R)
+            .map(({ s, p }, i, all) => {
+              const ly = CY - (all.length - 1) * 13 + i * 26;
+              const here = s.id === hereSys, isDest = s.id === destSys;
+              const ports = (game.sites || []).filter((x) => x.system === s.id).length;
+              return (
+                <g key={`leg-${s.id}`}>
+                  <line x1={p.x} y1={p.y} x2={LEGEND_X + 16} y2={ly - 4}
+                    stroke="#3A4761" strokeWidth="0.8" />
+                  <circle cx={LEGEND_X} cy={ly - 4} r="4" fill={s.color} stroke="#070A12" strokeWidth="1" />
+                  <text x={LEGEND_X + 11} y={ly} style={{ ...S.pin, textAnchor: "start", fill: here || isDest ? "#fff" : "#9FAAC2" }}>
+                    {s.name}{here && !transit ? " — you" : ""}
+                    {ports > 0 && <tspan style={{ fill: "var(--gold)" }}> ·{ports}</tspan>}
+                  </text>
+                </g>
+              );
+            })}
+        </g>
+      )}
 
       {shipXY && (
         <g>
@@ -1701,7 +1812,15 @@ const S = {
   skipBtn: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 13, marginLeft: 4 },
 
   main: { flex: 1, display: "flex", minHeight: 0 },
-  stage: { flex: 1, minWidth: 0, display: "flex" },
+  stage: { flex: 1, minWidth: 0, display: "flex", position: "relative" },
+  scaleWrap: { position: "absolute", left: 18, bottom: 16, maxWidth: 340, display: "flex", flexDirection: "column", gap: 7, pointerEvents: "none" },
+  // Border split into its three longhands, not the shorthand: the "on" state
+  // overrides only borderColor, and React warns (rightly) that mixing shorthand
+  // with longhand on a rerender can drop the other properties. Same pattern the
+  // rest of this stylesheet already uses.
+  scaleBtn: { alignSelf: "flex-start", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, color: "var(--muted)", pointerEvents: "auto" },
+  scaleBtnOn: { borderColor: "var(--gold)", color: "var(--gold)" },
+  scaleNote: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, fontStyle: "italic" },
   svg: { flex: 1, minHeight: 0, width: "100%" },
   panel: { width: 400, flexShrink: 0, borderLeft: "1px solid var(--line)", background: "var(--panel)", display: "flex", flexDirection: "column", overflow: "hidden" },
   tabs: { display: "flex", borderBottom: "1px solid var(--line)" },

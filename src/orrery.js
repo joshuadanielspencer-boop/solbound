@@ -16,7 +16,13 @@
 // the dishonest version.
 // ===========================================================================
 
-const K = 0.25;      // AU at which the log curve starts opening up
+// K is the AU at which the log curve starts opening up, and it is the dial that
+// decides how crowded the inner system looks. Lowering it from 0.25 to 0.14
+// pushes Mercury out from 18% of the board to 23% and widens every inner gap —
+// Venus and Earth were 17 pixels apart and are now 21, on a board that is also
+// bigger. The four planets a beginner cares about most were the four the old
+// curve squeezed hardest, which was exactly backwards.
+const K = 0.14;
 const R_MAX = 50;    // AU mapped to the outer edge (past the Kuiper Belt ring)
 
 /**
@@ -83,6 +89,31 @@ export function sayLightTime(sec) {
   if (sec < 90) return `${sec.toFixed(0)} seconds`;
   if (sec < 5400) return `${(sec / 60).toFixed(0)} minutes`;
   return `${(sec / 3600).toFixed(1)} hours`;
+}
+
+/**
+ * WHAT THE TRUE-SCALE VIEW IS ACTUALLY SHOWING, in words.
+ *
+ * The linear view is unusable as a map and that is the entire point of it: the
+ * solar system really is almost all nothing, and the compressed view we play on
+ * hides that. But a picture of a blob near a dot teaches nothing on its own, so
+ * the view has to say what the blob IS.
+ *
+ * `radiusPx` is the board radius the outermost orbit is drawn at.
+ */
+export function trueScaleFacts(radiusPx) {
+  const pxPerAU = radiusPx / R_MAX;
+  const milesPerPx = 92955807 / pxPerAU;
+  return {
+    pxPerAU,
+    milesPerPx,
+    // Mars is the outer edge of the inner system, and the number is startling.
+    innerSystemPct: (1.52 / R_MAX) * 100,
+    note: `One pixel is about ${(milesPerPx / 1e6).toFixed(1)} million miles. `
+      + `Mercury, Venus, Earth and Mars all fit inside the innermost `
+      + `${((1.52 / R_MAX) * 100).toFixed(0)}% of this view — the solar system is `
+      + `overwhelmingly empty, and the map you play on hides that.`,
+  };
 }
 
 /** Format an AU distance with a miles gloss — design.md §1.7, rule 3 in space. */
