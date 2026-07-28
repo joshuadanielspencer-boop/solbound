@@ -78,3 +78,46 @@ export function starfield(size = 1000, seed = 20350101, avoid = 120) {
 export function galacticBand(size = 1000) {
   return { cx: size / 2, cy: size * 0.42, rx: size * 0.78, ry: size * 0.13, rotate: -24 };
 }
+
+/**
+ * A stable seed from a string, so every system gets its OWN sky.
+ *
+ * Carrying one field across every screen made the zoom feel like the camera had
+ * not moved — you flew to Jupiter and the same stars were in the same places.
+ * They are still not a real sky (see the header), but they should at least
+ * change when the viewpoint does, and be the same every time you come back.
+ */
+export function skySeed(key = "") {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return (h >>> 0) || 1;
+}
+
+/**
+ * THE ASTEROID BELT, drawn as a belt.
+ *
+ * It was three named rocks on three concentric rings around a dot labelled "The
+ * Asteroid Belt", which read as a large asteroid with three moons — precisely
+ * backwards. The belt is millions of bodies sharing a wide band of heliocentric
+ * orbits, and nothing in it orbits anything else.
+ *
+ * So: a scatter across an annulus. Positions are seeded and therefore stable —
+ * the belt should look the same every time you open it — and the count is a
+ * visual abstraction rather than a claim about population (design.md §16).
+ */
+export function beltScatter({ count = 220, rInner = 150, rOuter = 400, cx = 500, cy = 500, seed = 7 } = {}) {
+  return withSeed(seed, () => Array.from({ length: count }, () => {
+    // Uniform in AREA, not in radius: scattering uniformly in r piles everything
+    // against the inner edge, which is how you draw a ring instead of a belt.
+    const t = rand();
+    const r = Math.sqrt(rInner * rInner + t * (rOuter * rOuter - rInner * rInner));
+    const a = rand() * Math.PI * 2;
+    return {
+      x: +(cx + r * Math.cos(a)).toFixed(1),
+      y: +(cy + r * Math.sin(a)).toFixed(1),
+      // A few big ones, a great many small ones — the real size distribution's
+      // shape, if not its numbers.
+      size: +(0.6 + Math.pow(rand(), 3) * 2.4).toFixed(2),
+    };
+  }));
+}

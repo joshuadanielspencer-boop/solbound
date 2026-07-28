@@ -29,7 +29,7 @@ import { buyShip, fitModule, removeModule, repairHull, buyEscapePod, buyDrive } 
 import { DRIVES, tankAfter } from "../propulsion.js";
 import { CRYO_FACTOR } from "../tradergame.js";
 import { createMusic, contextOf, loadAudioPref } from "../audio.js";
-import { starfield, galacticBand } from "../starfield.js";
+import { starfield, galacticBand, skySeed, beltScatter } from "../starfield.js";
 import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
 import { CREW_BY_ID, berthsFor } from "../data/crew.js";
 import { SKILLS } from "../data/captain.js";
@@ -57,7 +57,11 @@ const CROWDED_PX = 100, LEGEND_X = 74;
 /** How fast the clock drifts while you are docked, in mission-days per real
  *  second. Slow enough to read a market under, fast enough that Earth visibly
  *  moves in ten seconds — a planet covers about a degree a day. */
-const DOCK_RATE = 1;
+// Time in port drifts at one day every three seconds. It was one day a second,
+// which was fast enough that a player reading a market panel watched the date
+// run away underneath them. Slower reads as a world ticking over rather than a
+// clock being hurried.
+const DOCK_RATE = 1 / 3;
 const money = (n) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (t) => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44).toFixed(0)} months` : `${(d / 365.25).toFixed(1)} years`;
@@ -126,17 +130,14 @@ export default function Play({ game, setGame, onQuit }) {
   // dt is measured from the wall clock, so a stalled tab slows the sim rather
   // than desynchronising it.
   //
-  // TIME NOW RUNS IN PORT TOO, at a slow drift (DOCK_RATE days a second). A
-  // static orrery reads as a diagram; a moving one teaches the synodic period
-  // for free, which is the single most useful thing this map can do. Two things
-  // make that safe rather than punishing:
-  //   • it is one click to pause, and the control is always on screen
-  //   • it ticks at 10 fps in port rather than 30, because every tick re-prices
-  //     the market panel underneath it
-  // What it genuinely costs is WAGES, which accrue per day — so dithering in
-  // port is free with an empty ship and expensive with a crew aboard. That is
-  // the intended pressure, and the pause button is the answer to it.
-  const clockOn = transit ? RATES[game.rateIdx].days > 0 : game.dockClock !== false;
+  // TIME ALWAYS RUNS IN PORT, and there is no longer a way to hold it. A static
+  // orrery reads as a diagram; a moving one teaches the synodic period for free,
+  // which is the single most useful thing this map can do — and a pause button
+  // is an invitation to switch that lesson off. What the clock genuinely costs
+  // is WAGES, which accrue per day, so dithering is free with an empty ship and
+  // expensive with a crew aboard. The Wait button on the Dock is how you spend
+  // time deliberately; this is just the world turning over.
+  const clockOn = transit ? RATES[game.rateIdx].days > 0 : true;
   const stepDays = transit ? RATES[game.rateIdx].days : DOCK_RATE;
   useEffect(() => {
     if (stopped || !clockOn) return;
@@ -160,7 +161,6 @@ export default function Play({ game, setGame, onQuit }) {
   }, [transit, stopped, clockOn, stepDays]);
 
   const setRate = (i) => setGame((g) => ({ ...g, rateIdx: i }));
-  const toggleDockClock = () => setGame((g) => ({ ...g, dockClock: g.dockClock === false }));
   const skip = () => setGame((g) => {
     if (g.status !== "transit" || g.encounter || g.over) return g;
     const r = advanceTime(g, g.leg.arriveT);
@@ -260,7 +260,6 @@ export default function Play({ game, setGame, onQuit }) {
   return (
     <div style={S.app}>
       <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave}
-        onToggleDockClock={toggleDockClock}
         audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel} />
       <div style={S.main}>
         <div style={S.stage}>
@@ -315,7 +314,7 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock, audio, cue, onToggleAudio, onAudioLevel }) {
+function Hud({ game, onQuit, setRate, skip, onDownload, audio, cue, onToggleAudio, onAudioLevel }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
@@ -355,15 +354,6 @@ function Hud({ game, onQuit, setRate, skip, onDownload, onToggleDockClock, audio
         </div>
       ) : (
         <div style={S.clock}>
-          {/* Time drifts in port too. One click stops it, and the button says
-              which state you are in rather than which state it would put you in. */}
-          <button onClick={onToggleDockClock} aria-pressed={game.dockClock !== false}
-            title={game.dockClock !== false
-              ? `Time is drifting at ${DOCK_RATE} day a second. Click to hold it.`
-              : "Time is held. Click to let it drift again."}
-            style={{ ...S.rateBtn, ...(game.dockClock !== false ? S.rateOn : null), minWidth: 92 }}>
-            {game.dockClock !== false ? "▶ drifting" : "❚❚ held"}
-          </button>
           <button style={S.quit} onClick={onQuit}>Menu</button>
         </div>
       )}
@@ -1493,8 +1483,8 @@ function MarketIntel({ game, toId, shippingPerTonne }) {
  * Deliberately dim: the planets are the subject, and a starfield you actually
  * notice is one that is competing with them.
  */
-function Stars() {
-  const field = useMemo(() => starfield(VB), []);
+function Stars({ seed = 20350101, avoid = 120 }) {
+  const field = useMemo(() => starfield(VB, seed, avoid), [seed, avoid]);
   const band = useMemo(() => galacticBand(VB), []);
   return (
     <g aria-hidden="true" pointerEvents="none">
@@ -1699,15 +1689,34 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
   const sites = (game.sites || []).filter((s) => s.system === systemId);
   const hereId = game.player.at;
 
+  // Every system gets its own sky. One field carried across every screen made
+  // the zoom feel like the camera had not moved — you flew to Jupiter and found
+  // the same stars in the same places.
+  const sky = useMemo(() => skySeed(systemId), [systemId]);
+
+  // THE BELT IS A BAND, NOT A BODY. It used to be three named rocks on three
+  // concentric rings around a dot labelled "The Asteroid Belt", which read as a
+  // large asteroid with three moons — exactly backwards. Nothing in the belt
+  // orbits anything else; they all orbit the Sun, which is what sits at the
+  // centre here. So the named rocks are scattered THROUGH a field of rubble
+  // rather than ringed around a primary.
+  const rubble = useMemo(
+    () => (belt.length ? beltScatter({ seed: sky, rInner: 138, rOuter: 412, cx: CX, cy: CY }) : []),
+    [belt.length, sky],
+  );
+
   // One ring per body, log-compressed. Moon rings start well outside PLANET_RING
-  // so a planet's own settlements never sit on top of its moons' orbits. The
-  // belt's members are heliocentric, so they get evenly spaced rings instead —
-  // they do not orbit anything here.
+  // so a planet's own settlements never sit on top of its moons' orbits.
   const PLANET_RING = 122;
   const maxA = Math.max(...moons.map((m) => m.aKm), 1);
   const ringOf = (aKm) => (Math.log(1 + (aKm / maxA) / 0.12) / Math.log(1 + 1 / 0.12)) * 180 + 190;
+  // Belt members sit at their REAL semi-major axes, mapped across the band, so
+  // Vesta really is inside Ceres and Psyche really is outside it.
+  const AU_IN = 2.1, AU_OUT = 3.3, BAND_IN = 165, BAND_OUT = 390;
+  const beltRing = (au) =>
+    BAND_IN + ((Math.min(AU_OUT, Math.max(AU_IN, au)) - AU_IN) / (AU_OUT - AU_IN)) * (BAND_OUT - BAND_IN);
   const bodies = belt.length
-    ? belt.map((b, i) => ({ id: b.id, name: b.name, radiusKm: b.radiusKm, ring: 160 + i * 100, note: b.note }))
+    ? belt.map((b) => ({ id: b.id, name: b.name, radiusKm: b.radiusKm, ring: beltRing(b.aAU), note: b.note }))
     : moons.map((m) => ({ id: m.id, name: m.name, radiusKm: m.radiusKm, ring: ringOf(m.aKm), note: m.note }));
 
   const angleFor = (i, n) => (-90 + (360 / Math.max(n, 1)) * i) * (Math.PI / 180);
@@ -1724,18 +1733,46 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} style={S.svg} role="img"
       aria-label={`${sys?.name}: ${bodies.length} charted bodies, ${sites.length} ports.`}>
-      {bodies.map((b) => (
+      <defs>
+        <radialGradient id="sysSunCore">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+          <stop offset="55%" stopColor="#FFE7A6" stopOpacity="1" />
+          <stop offset="100%" stopColor="#F2B441" stopOpacity="0.85" />
+        </radialGradient>
+        <radialGradient id="sysSunHaze">
+          <stop offset="0%" stopColor="#FFE39A" stopOpacity="0.32" />
+          <stop offset="60%" stopColor="#F2B441" stopOpacity="0.07" />
+          <stop offset="100%" stopColor="#F2B441" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <Stars seed={sky} avoid={belt.length ? 0 : 90} />
+      {/* The belt's rubble, drawn under everything else. Warm and stony rather
+          than the blue-white of the stars behind it — at this size the only
+          thing telling a rock from a star is its colour. */}
+      {rubble.map((a, i) => (
+        <circle key={i} cx={a.x} cy={a.y} r={a.size * 1.15} fill="#B39B7E" fillOpacity="0.7" />
+      ))}
+      {!belt.length && bodies.map((b) => (
         <circle key={b.id} cx={CX} cy={CY} r={b.ring} fill="none" stroke="#26324a" strokeOpacity="0.55" />
       ))}
       {systemId === "saturn" && (
         <ellipse cx={CX} cy={CY} rx={78} ry={78} fill="none" stroke="#D8C08A" strokeOpacity="0.3" strokeWidth={26} />
       )}
 
-      {/* The primary, and anything sitting on or above it */}
-      <g>
-        <circle cx={CX} cy={CY} r={belt.length ? 14 : 40} fill={sys?.color || "#9AA6B8"} stroke="#070A12" strokeWidth="2" />
-        <text x={CX} y={CY + (belt.length ? 30 : 60)} style={{ ...S.pin, fill: "#fff", fontSize: 15 }}>{sys?.name}</text>
-      </g>
+      {/* The primary, and anything sitting on or above it. In the belt the
+          primary is the SUN — nothing out there orbits anything else. */}
+      {belt.length ? (
+        <g>
+          <circle cx={CX} cy={CY} r="74" fill="url(#sysSunHaze)" />
+          <circle cx={CX} cy={CY} r="11" fill="url(#sysSunCore)" />
+          <text x={CX} y={CY + 32} style={{ ...S.pin, fill: "#9FAAC2", fontSize: 12 }}>the Sun</text>
+        </g>
+      ) : (
+        <g>
+          <circle cx={CX} cy={CY} r={40} fill={sys?.color || "#9AA6B8"} stroke="#070A12" strokeWidth="2" />
+          <text x={CX} y={CY + 60} style={{ ...S.pin, fill: "#fff", fontSize: 15 }}>{sys?.name}</text>
+        </g>
+      )}
       {atPlanet.map((s, i) => {
         const a = angleFor(i, atPlanet.length);
         const x = CX + PLANET_RING * Math.cos(a), y = CY + PLANET_RING * Math.sin(a);
