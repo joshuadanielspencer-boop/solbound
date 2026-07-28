@@ -116,7 +116,7 @@ function Dock({ game, screen, go, back, actions }) {
         { label: "Propellant", value: `${p.ship.fuelTonnes.toFixed(0)}/${tankMax(p).toFixed(0)} t`,
           tone: p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined,
           hint: "Tonnes in the tank, out of what it holds" },
-        { label: "Ports you can reach", value: `${range.now} of ${range.total}`, tone: range.now ? undefined : "hot",
+        { label: "Ports in reach", value: `${range.now} of ${range.total}`, tone: range.now ? undefined : "hot",
           hint: "How many ports you could launch for on the propellant aboard. A fuller hold reaches fewer." },
         { label: "Crew wages", value: dailyCost(game) ? `${money(dailyCost(game))}/day` : "none",
           tone: dailyCost(game) ? "hot" : undefined,

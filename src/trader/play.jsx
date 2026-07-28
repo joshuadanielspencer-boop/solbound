@@ -9,16 +9,16 @@
 // ===========================================================================
 import { useEffect, useMemo, useRef, useState } from "react";
 import { heliocentric, periodDays, lightTimeSeconds } from "../ephemeris.js";
-import { project, orbitPath, sayLightTime, trueScaleFacts } from "../orrery.js";
+import { project, orbitPath, sayLightTime, trueScaleFacts, moonLongitude } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
 import { SYSTEMS, SYSTEM_BY_ID, MOONS, BELT_BODIES } from "../data/bodies.js";
 import { siteOf } from "../data/sites.js";
 import { COMMODITY_BY_ID } from "../data/commodities.js";
-import { cargoUsed, cargoCapacity, netWorth } from "../player.js";
+import { cargoUsed, cargoCapacity } from "../player.js";
 import { FACTION_BY_ID } from "../data/factions.js";
 import { buyShip, fitModule, removeModule, repairHull, buyEscapePod, buyDrive } from "../shipyard.js";
 import { DRIVES } from "../propulsion.js";
-import { createMusic, contextOf, loadAudioPref } from "../audio.js";
+import { contextOf } from "../audio.js";
 import { starfield, galacticBand, skySeed, beltScatter } from "../starfield.js";
 import { hireCrew, dismissCrew } from "../crew.js";
 import { FaceOff } from "./ships.jsx";
@@ -76,62 +76,33 @@ const fmtDate = (t) => new Date(t).toLocaleDateString("en-US", { year: "numeric"
 const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44).toFixed(0)} months` : `${(d / 365.25).toFixed(1)} years`;
 const dot = (rkm, k = 1) => Math.max(4, Math.min(22, Math.pow(rkm || 1000, 0.25) * 1.25)) * k;
 
-export default function Play({ game, setGame, onQuit }) {
+export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio, onAudioLevel, onSetContext }) {
   const [mode, setMode] = useState("dock");
   const [dest, setDest] = useState(null);
   const [sel, setSel] = useState(null);
   const [toast, setToast] = useState(null);
   // Which system the map is inside, or null for the whole solar system.
   const [zoom, setZoom] = useState(null);
+  // MENU IS A PAUSE, NOT AN EXIT. It used to drop you straight back to the title
+  // screen, which is a destructive-feeling action to put one click from the
+  // player's thumb with no confirmation. It opens this instead.
+  const [paused, setPaused] = useState(false);
   // The scale toggle. The playable map compresses distance logarithmically so
   // the inner planets are legible; this is the honest picture, kept one click
   // away rather than hidden (orrery.js explains why that matters).
   const [trueScale, setTrueScale] = useState(false);
 
   const flash = (text, kind = "ok") => setToast({ text, kind });
-  const transit = game.status === "transit";
-  const stopped = !!game.encounter || !!game.over;   // the clock holds for both
 
-  // ---- the soundtrack -----------------------------------------------------
-  // Built in the browser from the scores in data/music.js (audio.js). It cannot
-  // legally start until the player has clicked something, so it starts on the
-  // first click anywhere and remembers the answer thereafter.
-  const music = useRef(null);
-  const [audio, setAudio] = useState(() => loadAudioPref());
-  const [cue, setCue] = useState(null);
-  useEffect(() => {
-    const m = createMusic();
-    music.current = m;
-    const off = m.onChange(() => setCue(m.nowPlaying()));
-    const wake = () => { if (audioPrefRef.current.on) { m.start(); setCue(m.nowPlaying()); } };
-    window.addEventListener("pointerdown", wake, { once: true });
-    window.addEventListener("keydown", wake, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", wake);
-      window.removeEventListener("keydown", wake);
-      off(); m.dispose(); music.current = null;
-    };
-  }, []);
-  // The listener above is registered once, so it needs a live read of the
-  // preference rather than the value captured when it was attached.
-  const audioPrefRef = useRef(audio);
-  audioPrefRef.current = audio;
-
-  // Follow the game: where the player is decides which cue suits the moment.
+  // The soundtrack lives in index.jsx so it spans the menu as well as the game.
+  // Play's only job is to say WHERE the player is, which decides the cue.
   const musicContext = contextOf(game, (siteId) => siteOf(game, siteId)?.system);
-  useEffect(() => { music.current?.setContext(musicContext); }, [musicContext]);
+  useEffect(() => { onSetContext?.(musicContext); }, [musicContext, onSetContext]);
+  const transit = game.status === "transit";
+  // The clock holds for an encounter, for the end of a run, and for the pause
+  // menu — which is the whole point of calling it a pause.
+  const stopped = !!game.encounter || !!game.over || paused;
 
-  const toggleAudio = () => {
-    const next = { ...audio, on: !audio.on };
-    setAudio(next);
-    music.current?.setOn(next.on);
-    if (next.on) { music.current?.start(); setCue(music.current?.nowPlaying()); }
-  };
-  const setAudioLevel = (level) => {
-    const next = { ...audio, level };
-    setAudio(next);
-    music.current?.setLevel(level);
-  };
 
   // ---- the living clock ---------------------------------------------------
   // setInterval, not requestAnimationFrame: rAF is throttled to zero in a hidden
@@ -180,6 +151,12 @@ export default function Play({ game, setGame, onQuit }) {
   });
 
   // Esc backs out of a zoomed system, the same key the old fleet map used.
+  useEffect(() => {
+    if (!paused) return;
+    const onKey = (e) => { if (e.key === "Escape") setPaused(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paused]);
   useEffect(() => {
     if (!zoom) return;
     const onKey = (e) => { if (e.key === "Escape") setZoom(null); };
@@ -277,8 +254,8 @@ export default function Play({ game, setGame, onQuit }) {
 
   return (
     <div style={S.app}>
-      <Hud game={game} onQuit={onQuit} setRate={setRate} skip={skip} onDownload={downloadSave}
-        audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel} />
+      <Hud game={game} onQuit={() => setPaused(true)} setRate={setRate} skip={skip}
+        audio={audio} cue={cue} onToggleAudio={onToggleAudio} onAudioLevel={onAudioLevel} />
       <div style={S.main}>
         <div style={S.stage}>
           {zoom
@@ -319,6 +296,11 @@ export default function Play({ game, setGame, onQuit }) {
           )}
         </aside>
       </div>
+      {paused && (
+        <PauseMenu game={game} setGame={setGame} audio={audio}
+          onResume={() => setPaused(false)} onQuit={onQuit}
+          onSave={downloadSave} onToggleAudio={onToggleAudio} />
+      )}
       {toast && <Toast toast={toast} onDone={() => setToast(null)} />}
     </div>
   );
@@ -332,15 +314,13 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, onDownload, audio, cue, onToggleAudio, onAudioLevel }) {
+function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLevel }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
   const where = transit ? `en route to ${siteOf(game, game.leg.to)?.name}` : `docked at ${here?.name}`;
   return (
     <header style={S.hud}>
-      <button onClick={onDownload} style={S.homeBtn} title="Download this game as a file"
-        aria-label="Download save file">⤓</button>
       <MusicControl audio={audio} cue={cue} onToggle={onToggleAudio} onLevel={onAudioLevel} />
       <div>
         <div style={S.capName}>{p.name}</div>
@@ -348,7 +328,6 @@ function Hud({ game, onQuit, setRate, skip, onDownload, audio, cue, onToggleAudi
       </div>
       <div style={S.hudStats}>
         <Hstat label="Credits" value={money(p.credits)} tone="gold" />
-        <Hstat label="Net worth" value={money(netWorth(p, game.markets))} />
         <Hstat label="Hold" value={`${cargoUsed(p).toFixed(0)} / ${cargoCapacity(p).toFixed(0)} t`} />
         <Hstat label="Fuel" value={`${p.ship.fuelTonnes.toFixed(0)} / ${tankMax(p).toFixed(0)} t`}
           tone={p.ship.fuelTonnes < tankMax(p) * 0.2 ? "hot" : undefined} />
@@ -953,7 +932,9 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
 
   // One ring per body, log-compressed. Moon rings start well outside PLANET_RING
   // so a planet's own settlements never sit on top of its moons' orbits.
-  const PLANET_RING = 122;
+  // Far enough out that a wide site pin never reaches back over the primary or
+  // its name. At 122 the Valles Marineris pin was touching Mars.
+  const PLANET_RING = 168;
   const maxA = Math.max(...moons.map((m) => m.aKm), 1);
   const ringOf = (aKm) => (Math.log(1 + (aKm / maxA) / 0.12) / Math.log(1 + 1 / 0.12)) * 180 + 190;
   // Belt members sit at their REAL semi-major axes, mapped across the band, so
@@ -965,10 +946,25 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
     ? belt.map((b) => ({ id: b.id, name: b.name, radiusKm: b.radiusKm, ring: beltRing(b.aAU), note: b.note }))
     : moons.map((m) => ({ id: m.id, name: m.name, radiusKm: m.radiusKm, ring: ringOf(m.aKm), note: m.note }));
 
-  const angleFor = (i, n) => (-90 + (360 / Math.max(n, 1)) * i) * (Math.PI / 180);
+  const angleFor = (i, n, startDeg = -90) => (startDeg + (360 / Math.max(n, 1)) * i) * (Math.PI / 180);
+
+  // THE MOONS GO ROUND. They were pinned at fixed angles, so a system opened as
+  // a still diagram while the solar map outside it was alive — and the moons are
+  // the fastest-moving things in the game, which made standing still the worst
+  // possible choice for them. moonLongitude() has been in orrery.js since the
+  // first build, driven by each moon's REAL period from data/bodies.js: Phobos
+  // laps Mars in 7.7 hours, Io laps Jupiter in 1.8 days, our Moon takes 27.3.
+  //
+  // The phase is honest about what it is. data/bodies.js flags that these are
+  // not epoch-anchored — the SPEEDS and the spacing are real, which meridian
+  // faces where on a given date is not — so this shows the rhythm without
+  // claiming a position.
   const placed = bodies.map((b, i) => {
-    const a = angleFor(i, bodies.length);
-    return { ...b, x: CX + b.ring * Math.cos(a), y: CY + b.ring * Math.sin(a), sites: sites.filter((s) => s.body === b.id) };
+    const moon = moons.find((m) => m.id === b.id);
+    const a = moon
+      ? (moonLongitude(moon, new Date(game.t)) * Math.PI) / 180
+      : angleFor(i, bodies.length);
+    return { ...b, x: CX + b.ring * Math.cos(a), y: CY - b.ring * Math.sin(a), sites: sites.filter((s) => s.body === b.id) };
   });
 
   // Anything whose `body` is the primary itself — a surface settlement, or
@@ -1016,11 +1012,16 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
       ) : (
         <g>
           <circle cx={CX} cy={CY} r={40} fill={sys?.color || "#9AA6B8"} stroke="#070A12" strokeWidth="2" />
-          <text x={CX} y={CY + 60} style={{ ...S.pin, fill: "#fff", fontSize: 15 }}>{sys?.name}</text>
+          {/* The primary's name goes ABOVE it. Below is where the ring of site
+              pins lands (PLANET_RING = 122), and "Mars" was being sat on by
+              whichever settlement happened to be drawn at the bottom. */}
+          <text x={CX} y={CY - 52} style={{ ...S.pin, fill: "#fff", fontSize: 16 }}>{sys?.name}</text>
         </g>
       )}
+      {/* Ports on the primary itself start at the BOTTOM of their ring, so the
+          first one never lands under the planet's name at the top. */}
       {atPlanet.map((s, i) => {
-        const a = angleFor(i, atPlanet.length);
+        const a = angleFor(i, atPlanet.length, 90);
         const x = CX + PLANET_RING * Math.cos(a), y = CY + PLANET_RING * Math.sin(a);
         return <SitePin key={s.id} site={s} x={x} y={y} here={s.id === hereId} sel={dest === s.id} onPick={onPick} />;
       })}
@@ -1082,6 +1083,55 @@ function SitePin({ site, x, y, here, sel, onPick }) {
         {label}
       </text>
     </g>
+  );
+}
+
+/**
+ * THE PAUSE MENU. "Menu" used to mean "abandon this and go back to the title",
+ * one click from the player's thumb with no confirmation — which is a strange
+ * thing to make the easiest button on the screen.
+ *
+ * It stops the world instead (the clock reads `paused`), and offers the four
+ * things a player actually wants mid-run plus the way out. Escape or Resume
+ * closes it.
+ *
+ * DIFFICULTY IS HERE AND IS NOT WIRED TO ANYTHING, and the screen says so.
+ * design.md §12 explicitly declined difficulty settings — "our difficulty is the
+ * rocket equation and the faction draw" — so this stores a choice and changes
+ * nothing until that decision is revisited. A control that quietly did nothing
+ * would be worse than one that admits it.
+ */
+const DIFFICULTIES = ["Forgiving", "Standard", "Unforgiving"];
+
+function PauseMenu({ game, setGame, audio, onResume, onQuit, onSave, onToggleAudio }) {
+  const diff = game.difficulty || "Standard";
+  const cycle = () => setGame((g) => ({
+    ...g,
+    difficulty: DIFFICULTIES[(DIFFICULTIES.indexOf(g.difficulty || "Standard") + 1) % DIFFICULTIES.length],
+  }));
+  return (
+    <div style={S.modalWrap} role="dialog" aria-modal="true" aria-label="Game paused"
+      onClick={(e) => { if (e.target === e.currentTarget) onResume(); }}>
+      <div style={S.modal}>
+        <div style={S.modalTitle}>Paused</div>
+        <div style={S.modalSub}>{game.player.name} · {fmtDate(game.t)}</div>
+
+        <button style={S.modalPrimary} onClick={onResume}>Resume</button>
+        <button style={S.modalBtn} onClick={onSave}>Save game to a file</button>
+        <button style={S.modalBtn} onClick={onToggleAudio}>
+          Music <span style={S.modalVal}>{audio?.on ? "on" : "off"}</span>
+        </button>
+        <button style={S.modalBtn} onClick={cycle}>
+          Difficulty <span style={S.modalVal}>{diff}</span>
+        </button>
+        <button style={{ ...S.modalBtn, ...S.modalQuit }} onClick={onQuit}>Return to main menu</button>
+
+        <div style={S.modalNote}>
+          The game autosaves on its own; the file is the copy that survives a cleared
+          cache. Difficulty is stored but not yet wired to anything.
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1232,5 +1282,14 @@ const S = {
   goBtn: { marginTop: 10, width: "100%", background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 8, padding: "10px", cursor: "pointer", fontWeight: 700, fontSize: 14 },
 
   pin: { fontSize: 12, textAnchor: "middle", pointerEvents: "none", fontFamily: "inherit" },
+  modalWrap: { position: "fixed", inset: 0, background: "rgba(4,7,14,0.72)", display: "grid", placeItems: "center", zIndex: 60 },
+  modal: { width: 340, background: "var(--panel)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 14, padding: "22px 22px 18px", display: "flex", flexDirection: "column", gap: 8, boxShadow: "0 20px 60px rgba(0,0,0,0.65)" },
+  modalTitle: { fontSize: 20, fontWeight: 700, textAlign: "center" },
+  modalSub: { fontSize: 12, color: "var(--muted)", textAlign: "center", marginBottom: 10 },
+  modalPrimary: { width: "100%", background: "var(--gold)", color: "#1A1200", border: "none", borderRadius: 9, padding: "11px", cursor: "pointer", fontWeight: 700, fontSize: 14 },
+  modalBtn: { width: "100%", background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 9, padding: "10px", cursor: "pointer", color: "var(--text)", fontSize: 13.5, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  modalVal: { color: "var(--gold)", fontSize: 12.5 },
+  modalQuit: { color: "var(--hot)", marginTop: 6 },
+  modalNote: { fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginTop: 8, textAlign: "center" },
   toast: { position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: "var(--panel)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--gold)", borderRadius: 10, padding: "11px 18px", fontSize: 13.5, zIndex: 40, maxWidth: 560, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" },
 };

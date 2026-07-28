@@ -7,7 +7,8 @@
 // leg; Continue resumes it; and the whole game can be exported to / imported
 // from a file, which survives a cleared cache and moves between machines.
 // ===========================================================================
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Intro from "./intro.jsx";
 import Splash from "./splash.jsx";
 import CreateCaptain from "./create.jsx";
 import Play from "./play.jsx";
@@ -15,6 +16,7 @@ import { newPlayer } from "../player.js";
 import { newGame } from "../tradergame.js";
 import { cargoUsed } from "../player.js";
 import { autosave, loadAutosave, hasSave, clearSave } from "../save.js";
+import { createMusic, loadAudioPref } from "../audio.js";
 
 // A cheap fingerprint of the things worth persisting. The clock changes `t` and
 // the markets ~30 times a second while flying; those must NOT trigger a save, or
@@ -31,7 +33,7 @@ const saveSig = (g) =>
   + `|${g.player.ship.fuelTonnes.toFixed(1)}|${g.status === "docked" ? Math.round(g.t / 86400000) : ""}`;
 
 export default function Trader() {
-  const [phase, setPhase] = useState("splash");   // "splash" | "create" | "play"
+  const [phase, setPhase] = useState("intro");   // "intro" | "splash" | "create" | "play"
   const [game, setGame] = useState(null);
   const [saveExists, setSaveExists] = useState(() => hasSave());
 
@@ -63,6 +65,46 @@ export default function Trader() {
     return () => clearTimeout(id);
   }, [game, phase]);
 
+  // ---- the soundtrack, for the whole application ---------------------------
+  // It used to be created inside Play, which meant it started when a game did
+  // and the menu was silent. Owning it here lets one engine span intro → menu →
+  // game, so the music carries across a New Game rather than stopping and
+  // restarting. Play still decides WHICH cue by reporting where the player is.
+  const music = useRef(null);
+  const [audio, setAudio] = useState(() => loadAudioPref());
+  const [cue, setCue] = useState(null);
+  const audioPref = useRef(audio);
+  audioPref.current = audio;
+  useEffect(() => {
+    const m = createMusic();
+    music.current = m;
+    const off = m.onChange(() => setCue(m.nowPlaying()));
+    // Browsers will not let a page make noise before a real gesture, and they
+    // are right to. The intro card is skippable by any click or key, so the
+    // gesture that dismisses it is usually the one that starts the music.
+    const wake = () => { if (audioPref.current.on) { m.start(); setCue(m.nowPlaying()); } };
+    window.addEventListener("pointerdown", wake, { once: true });
+    window.addEventListener("keydown", wake, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("keydown", wake);
+      off(); m.dispose(); music.current = null;
+    };
+  }, []);
+
+  const toggleAudio = useCallback(() => {
+    setAudio((a) => {
+      const next = { ...a, on: !a.on };
+      music.current?.setOn(next.on);
+      if (next.on) { music.current?.start(); setCue(music.current?.nowPlaying()); }
+      return next;
+    });
+  }, []);
+  const setAudioLevel = useCallback((level) => {
+    setAudio((a) => { music.current?.setLevel(level); return { ...a, level }; });
+  }, []);
+  const setMusicContext = useCallback((c) => music.current?.setContext(c), []);
+
   const startNew = () => { clearSave(); setSaveExists(false); setPhase("create"); };
 
   const beginCaptain = ({ name, skills }) => {
@@ -78,11 +120,22 @@ export default function Trader() {
     setPhase("play");
   };
 
+  if (phase === "intro") return <Intro onDone={() => setPhase("splash")} />;
   if (phase === "play" && game) {
-    return <Play game={game} setGame={setGame} onQuit={() => setPhase("splash")} />;
+    return (
+      <Play game={game} setGame={setGame} onQuit={() => setPhase("splash")}
+        audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel}
+        onSetContext={setMusicContext} />
+    );
   }
   if (phase === "create") {
     return <CreateCaptain onBegin={beginCaptain} onBack={() => setPhase("splash")} />;
   }
-  return <Splash onNew={startNew} hasSave={saveExists} onContinue={resume} onImported={(g) => { setGame(g); setPhase("play"); }} />;
+  // The menu has music too — "dock" is the calm set, which is what a title
+  // screen wants.
+  return (
+    <Splash onNew={startNew} hasSave={saveExists} onContinue={resume}
+      onImported={(g) => { setGame(g); setPhase("play"); }}
+      audio={audio} onToggleAudio={toggleAudio} />
+  );
 }

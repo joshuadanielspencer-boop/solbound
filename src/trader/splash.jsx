@@ -42,7 +42,7 @@ function SplashSky() {
   );
 }
 
-export default function Splash({ onNew, hasSave, onContinue, onImported }) {
+export default function Splash({ onNew, hasSave, onContinue, onImported, audio, onToggleAudio }) {
   const [options, setOptions] = useState(false);
   const [fileError, setFileError] = useState(null);
   const fileInput = useRef(null);
@@ -62,10 +62,9 @@ export default function Splash({ onNew, hasSave, onContinue, onImported }) {
       <SplashSky />
       <img src={`${import.meta.env.BASE_URL}title-card.png`} alt="SOLBOUND" style={s.logoWide} />
       <div style={s.inner}>
-        <p style={s.tagline}>An economic strategy game in the real solar system.<br />The map is delta-v, not distance.</p>
 
         {options ? (
-          <Options onBack={() => setOptions(false)} />
+          <Options onBack={() => setOptions(false)} audio={audio} onToggleAudio={onToggleAudio} />
         ) : (
           <div style={s.menu}>
             {summary && (
@@ -81,29 +80,25 @@ export default function Splash({ onNew, hasSave, onContinue, onImported }) {
             {fileError && <div style={s.fileErr}>{fileError}</div>}
           </div>
         )}
-
-        <p style={s.draft}>
-          Early build. The economy and physics underneath are real and tested; the
-          game around them is still coming together. Facts and figures on the cards
-          are drafts — don't learn from them yet.
-        </p>
+        <p style={s.copyright}>© 2026 Lotus Creative Studios</p>
       </div>
     </div>
   );
 }
 
-function Options({ onBack }) {
+function Options({ onBack, audio, onToggleAudio }) {
   return (
     <div style={s.optionsBox}>
       <div style={s.optTitle}>Options</div>
       <p style={s.optNote}>
-        Difficulty, victory conditions (a short <b>Run</b> to a target fortune, or the
-        long <b>Campaign</b> to sever Earth-dependency), sound and accessibility settings
-        will live here. Not wired yet.
+        Sound and accessibility settings will live here. The victory condition — a short
+        <b> Run</b> to a target fortune, or the long <b>Campaign</b> to sever Earth-dependency —
+        is chosen when you start a new game, not here.
       </p>
-      <div style={s.optRow}><span>Mode</span><span style={s.optVal}>Campaign (only mode so far)</span></div>
-      <div style={s.optRow}><span>Difficulty</span><span style={s.optVal}>Standard</span></div>
-      <div style={s.optRow}><span>Reduce motion</span><span style={s.optVal}>Follows your system setting</span></div>
+      <div style={s.optRow}>
+        <span>Music</span>
+        <button style={s.optBtn} onClick={onToggleAudio}>{audio?.on ? "On" : "Off"}</button>
+      </div>
       <button style={s.back} onClick={onBack}>← Back</button>
     </div>
   );
@@ -113,6 +108,7 @@ const s = {
   wrap: { position: "relative", minHeight: "100%", display: "grid", placeItems: "center", background: "radial-gradient(1100px 560px at 50% 8%, #14243f 0%, var(--bg) 62%)", padding: "40px 20px", overflow: "hidden" },
   sky: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" },
   inner: { position: "relative", width: "100%", maxWidth: 560, textAlign: "center" },
+  copyright: { marginTop: 26, fontSize: 11.5, letterSpacing: 0.6, color: "var(--muted)", opacity: 0.75 },
   // THE LOGO'S BLACK IS BLENDED AWAY rather than edited out of the file.
   // `mix-blend-mode: screen` drops every black pixel to nothing and keeps the
   // bright ones, so the title card's square backing disappears into the
@@ -139,6 +135,7 @@ const s = {
   optTitle: { fontSize: 18, fontWeight: 700, marginBottom: 10 },
   optNote: { fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginBottom: 14 },
   optRow: { display: "flex", justifyContent: "space-between", padding: "9px 0", borderTop: "1px solid var(--line)", fontSize: 13.5 },
+  optBtn: { background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, padding: "5px 16px", cursor: "pointer", color: "var(--text)", fontSize: 12.5, minWidth: 64 },
   optVal: { color: "var(--muted)" },
   back: { marginTop: 16, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 13 },
 };
