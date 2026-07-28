@@ -8,70 +8,149 @@ of this file is the detail that block points at.
 ## Prompt for the next session
 
 > You're continuing work on **SOLBOUND**, a single-player economic-strategy game
-> set in the real solar system, repo at `~/Dropbox/Solbound` (its own git repo, a
-> sibling of Shutterbug, no shared code). LIVE at
-> https://joshuadanielspencer-boop.github.io/solbound/ — **but note: ~15 commits
-> are LOCAL and UNPUSHED** (push auto-deploys; Joshua decides when).
+> set in the real solar system. Repo `~/Dropbox/Solbound` (its own git repo, a
+> sibling of Shutterbug, no shared code). **LIVE and fully pushed** at
+> https://joshuadanielspencer-boop.github.io/solbound/ — push to `main`
+> auto-deploys via GitHub Actions (`npm test` gates it). `~/bin/gh` is authed.
 >
-> **Read first, in order:** `docs/design.md` (master design), `docs/site-atlas.md`
-> (the researched census of ~60 real places + the Space Trader benchmark), then
-> `docs/handoff.md` (this file — especially "Session of 2026-07-27" and its
-> **direction call**, then "Where things stand", "How the encounter layer works",
-> the roadmap, and "Known balance notes"). Then skim `src/` — every file has a
-> header explaining itself.
+> **Read first, in order:** `docs/design.md` (master design — §12 lists locked
+> decisions, §16 the accuracy policy), `docs/handoff.md` (this file: "Where
+> things stand", "Working agreements", "Open decisions"), `docs/astronomy.md`
+> (the two-semester curriculum audit and the build order it proposes), and
+> `docs/manual.md` (the player-facing manual — it states real prices and goes
+> stale the moment you change one). Then skim `src/` and `src/trader/`; every
+> file has a header that explains itself and why it is shaped that way.
 >
-> **What the game is:** Space Trader's loop on the real solar system — captain,
-> buy/fly/sell across real orbits priced by the rocket equation, an economy where
-> trade is DEPENDENCY not arbitrage, and a roguelike draw over fixed real
-> geography.
+> **What the game is:** Space Trader's loop on the real solar system — a captain
+> who buys, flies and sells across real orbits priced by the rocket equation, an
+> economy where trade is DEPENDENCY not arbitrage, and a roguelike draw of
+> factions and installations over fixed real geography.
 >
-> **What's built** (390 tests, all pure functions + a thin React UI):
-> the full trade loop on a living orrery · market intel gated by light-lag AND
-> **solar conjunction** (real geometry; ~2-week blackouts) · system character with
-> police/pirates as separate readings · paid newspaper · save/load (**v9**,
-> migration ladder) · Ship Yard with weapon/shield/gadget bays + **escape pod** ·
-> **crew** (best hand aboard does the job) with **daily wages** · the
-> **encounter/risk layer** (pure resolver, SVG face-off art, customs duty on
-> controlled goods, TRUE CONTRABAND — arms/fissiles legal at free ports, seized
-> under strict law) · faction market mods wired to prices · **the drawn world**
-> (`worldgen.spawnSites(seed)` draws 9–13 sites from the census around the
-> immortal core seven, with the **Atlas tab** revealing real places by docking or
-> survey-lab sweeps) · a visible **Standing** track with a ledger
-> (`src/reputation.js`) · **drive eras you can buy**, with hydrogen **boil-off**
-> and the cryocooler that answers it · wait button, range readout, "not traded
-> here" rows.
+> **DO NEXT, in this order, unless Joshua redirects:**
 >
-> **Do next — but the ordering is an open question Joshua should settle.** See
-> "Session of 2026-07-27 → The direction call" in the handoff. In short: items
-> 1, 3 and 4 of the old list are done; what remains is either the **missions
-> board** (more Space Trader, safe, immediately playable) or **production chains
-> / ISRU** (the campaign's actual identity per design.md §5, larger, and the
-> reason the mining rig and survey lab modules still do nothing). The standing
-> recommendation is production chains, after Joshua has played a few runs.
-> The researched backlog (rare goods, debt & insurance, career clock, event
-> director, fact-unlocks, port reports) is under "Suggestions from the wider-games
-> research".
+> 1. **The planet surface map.** Clicking the primary in the system view should
+>    open a surface map of that body. The coordinate data landed last session
+>    (`src/data/place-coords.js`, generated — 27 real IAU positions) and is
+>    tested. Two things to decide before writing code, both flagged to Joshua and
+>    unanswered: (a) only **Luna (7 places) and Mars (5)** have enough places to
+>    be worth a map — everything else has exactly one, and a surface map showing a
+>    single dot is worse than none; (b) **there is no Moon plate** in
+>    `public/plates/` (only mars, mercury, europa, enceladus), so
+>    `scripts/fetch-plates.mjs` needs a licence-checked lunar entry first — read
+>    that script's header before adding one, the licence trap is real and is
+>    documented there.
+>    What the map is FOR, so it is not just a picture: it finally connects
+>    `illumination.js` — a complete, tested engine for real day length, seasons,
+>    terminator and polar night that NOTHING has called since the pivot. Shackleton's
+>    crater floor in permanent shadow with sunlit rim ridges a few km away is the
+>    single fact that explains why every lunar programme aims there. It is also
+>    where "you can't build where you haven't surveyed" becomes visible, and the
+>    natural home for ISRU siting later.
 >
-> **No UI test of any kind exists**, and it cost a release: the Yard tab crashed
-> on every open from the crew commit until 2026-07-27, behind a fully green suite.
-> Open the screens you touch.
+> 2. **Sound effects — brainstorm first, then build.** Joshua asked for ideas for
+>    both in-game and menu SFX and has NOT seen a proposal yet. `src/audio.js`
+>    already synthesises the whole soundtrack procedurally from scores in
+>    `src/data/music.js` — no audio files anywhere, because this is an offline PWA
+>    whose whole shell is under half a megabyte. SFX should follow the same
+>    approach (short Web Audio envelopes, defined as data) unless there is a
+>    reason not to. Propose before building.
 >
-> **`docs/manual.md` is the player-facing manual** — the loop, the first hour, the
-> five screens, the rules that bite, and a quick-reference card. It states real
-> prices and real numbers, so it goes stale the moment you change one. If you
-> change what a player does or what something costs, update it in the same commit.
+> 3. **Merging the maps with the Course menu.** Discussed with Joshua, shape not
+>    yet agreed. The sketch: zoom level = scope (orrery → system → surface),
+>    hovering anything on the map fills the panel with the Course detail, clicking
+>    commits, and the Course tab disappears the way the Atlas tab did. The open
+>    question I put to him and he has not answered: does the Course tab go away
+>    entirely, or survive as a sortable list for comparison? A list genuinely
+>    beats a map for "which of these eighteen is cheapest".
 >
-> **Balance items awaiting Joshua's playtest** are listed under "Known balance
-> notes" — do NOT blind-tune them. Several design decisions have had NO feedback
-> yet (see "Awaiting feedback" section); surface them when relevant rather than
-> treating them as settled.
+> 4. Then the backlog in "Open decisions" and `docs/astronomy.md` §7 Phase 1
+>    (inverse-square power budgets, real launch windows, inclination cost,
+>    reconnecting illumination.js).
 >
-> Work the way the existing commits do: small tested increments, honest commit
-> messages that say what was FOUND (not just done), `npm test` + `npm run build`
-> before every commit, and verify UI changes in the browser preview
-> (`solbound-dev`, auto-port).
+> **WORKING AGREEMENTS — these are how this project runs, follow them:**
+> - Small tested increments. `npm test` AND `npm run build` before every commit.
+> - Commit messages say what was **FOUND**, not just what was done — including
+>   your own mistakes and the things that turned out to be harder than expected.
+>   Read `git log` for the register; it is deliberate and Joshua reads them.
+> - **Verify UI changes in the browser** (`solbound-dev` via `.claude/launch.json`,
+>   or `npm run dev`). Do not report a UI change as working without opening it.
+> - When you deploy, **verify the live bundle by content**, not by CI going green
+>   (`curl` the deployed JS and grep for a string you just added — constant NAMES
+>   are minified away, string literals survive).
+> - **Never invent a number.** Project rule 2 and design.md §16: every fact is
+>   sourced, generated, or explicitly labelled speculation. If it cannot be
+>   sourced, it does not ship. This is the rule the whole project rests on.
+> - Content lives in `src/data/`, never inline in a component (rule 1).
+> - Accessibility is required (rule 4): keyboard parity for every hover, colour
+>   never the only carrier of meaning, visible focus.
+> - Desktop window is the only target. Phones and tablets are explicitly out.
+>
+> **Balance items await Joshua's playtest — do NOT blind-tune them.** He said
+> he is working through it and will report. See "Open decisions" below; several
+> have had no feedback across many sessions.
 
 ---
+
+## Session of 2026-07-28 — the interface session
+
+Almost none of this was new systems; it was making the game legible. Joshua
+played it and the feedback was blunt and right: *"the game presents SO MUCH
+information all at once, and most of it text that you have to scroll through...
+not intuitive what I'm supposed to be doing."*
+
+**The panel became a tree** (`src/trader/ui.jsx` + `src/trader/panels.jsx`, both
+new; `play.jsx` dropped 1,800 → 1,200 lines). Each tab is a menu of labelled ways
+in, each opening a screen with a back arrow, and every menu button carries the
+number you would have gone in to read. Detail arrives on **hover** in a bubble
+that is absolutely positioned so the list never reflows under the cursor — the
+naive version moves the row you were aiming at out from under the pointer. 160ms
+delay before showing, none before hiding.
+
+**The map earned its screen.** Rotated 135.93° so Pluto's major axis lies along
+the wide side of the frame (worth 29% more scale in true view — its aphelion
+reaches 49.3 AU but its semi-minor axis is only 38.24); viewBox widened to
+1350×1000; sun drawn in three layers with a white core; orbits dimmed to 0.26;
+starfield per system; the belt redrawn as a band of ~220 rocks around the Sun at
+real semi-major axes instead of three moons around a dot; moons animated on real
+periods. The **Atlas tab is gone** — clicking a planet opens its system on the map
+AND its atlas in the panel.
+
+**Shell and framing.** Studio card intro (skippable, honours reduced motion),
+music lifted to the app root so it plays on the menu, Menu became a **pause
+overlay** instead of a one-click exit, download button folded into it as Save
+Game, net worth removed, splash starfield + 2× logo with its black screened away.
+
+**Coordinates landed** (`scripts/gen-place-coords.mjs` → `src/data/place-coords.js`).
+27 real IAU positions pulled from the USGS gazetteer's bulk KMZ exports. Half the
+census has no coordinate and never will — orbits, Lagrange points, cyclers,
+resonance gaps — and `hasSurface()` says so rather than inventing latitudes.
+
+**Clock:** 2 / 15 / 90 days per second (was 4 / 25 / 120), and time in port drifts
+at 1 day per 3 seconds with no pause button. Measured while deciding: trip lengths
+are **bimodal** — ~26% are the flat 6-day intra-system hop, only 2% land between
+two weeks and two months, ~70% run six months to several years. The gap is real
+physics.
+
+**Docs added:** `docs/manual.md` (player manual) and `docs/astronomy.md` (audit of
+how much of two semesters of intro astronomy can be taught as mechanics — scores
+semester one at ~90% achievable and stellar at ~65%, with the distance ladder as a
+literal tech tree and parallax baseline scaling with how far out you build).
+
+### Gotchas worth not rediscovering
+
+- **The browser preview pane collapses to 0×0 intermittently.** Every geometry
+  reading taken then is garbage (I once "found" 287px of overflow that was pure
+  artefact). Check `innerWidth` before trusting any measurement; screenshots
+  sometimes still work when JS reports hidden.
+- **Verify deploys by content, not by CI.** Constant names are minified away;
+  grep the deployed bundle for a string literal you just added.
+- **React delegates mouseenter off mouseover** — a synthetic `mouseenter` in a
+  test script never reaches a React handler. Dispatch a bubbling `mouseover` with
+  a `relatedTarget`.
+- **The IAU gazetteer has no query API.** Its CSV export is not a URL parameter
+  and its search page renders client-side. The bulk KMZ files on `GIS_Downloads`
+  are the machine interface, and nothing links to them from the search UI.
+
 
 ## Session of 2026-07-27 — what landed, and the one question left open
 
@@ -508,6 +587,38 @@ Added 2026-07-27, also unanswered:
   shut for now, which may be right (it is what ISRU and depots are FOR) or may
   read as a dead end.
 - **Missions vs production chains** — the direction call at the top of this file.
+
+## Open decisions — Joshua has NOT answered these
+
+Surface every one of these when it becomes relevant rather than building past it.
+
+**Asked and unanswered this session:**
+- **Surface map scope.** Only Luna (7 places) and Mars (5) have enough places to
+  justify a map; every other body has exactly one. Build for two bodies and fall
+  back to the system view elsewhere, or something else?
+- **No lunar plate exists.** `public/plates/` has mars, mercury, europa,
+  enceladus. Luna — the body that most needs one — is missing, and adding it
+  means a licence-checked entry in `scripts/fetch-plates.mjs` (read that header).
+- **Course tab after a map/panel merge:** does it disappear entirely, or survive
+  as a sortable comparison list? A list beats a map for "which of these is
+  cheapest".
+- **Difficulty.** Now cycles in the pause menu, stores a value, and is wired to
+  NOTHING — the dialog says so. `design.md` §12 explicitly declined difficulty
+  settings ("our difficulty is the rocket equation and the faction draw"). Joshua
+  asked for the control; this is a locked decision that needs revisiting rather
+  than quietly overturning.
+- **Sound effects** — asked for a brainstorm, has not received one yet.
+
+**Long-standing, still open (see "Known balance notes"):**
+- Escape pod at $35,000 as the answer to death.
+- Crew wages: one hire turns a 9-month Mars run into ~$86k, more than a starter's
+  cargo. Best pressure in the game, or a trap that makes hiring a mistake?
+- Encounter frequency ~45–50% per quiet Mars leg.
+- Contraband numbers, the paid newspaper, slot kinds, the drawn world's tone.
+- The 2050 ephemeris horizon (Standish Table 1 stops there; multi-century
+  campaigns need the 3000 BC–3000 AD tables).
+- `DELTA_V_FROM_LEO` is still invented and labelled as such.
+
 
 ## Known balance notes for playtest (not blind-tuned)
 
