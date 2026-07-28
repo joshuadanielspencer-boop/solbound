@@ -60,6 +60,7 @@ import { controlledCargo, illegalCargo } from "../encounters.js";
 import { DRIVES, tankAfter } from "../propulsion.js";
 import {
   destinations, fuelPrice, tankMax, dailyCost, tripCost, paperPrice, rangeReport, CRYO_FACTOR,
+  travelCost,
 } from "../tradergame.js";
 
 // ---------------------------------------------------------------------------
@@ -664,22 +665,60 @@ function ShipsScreen({ game, back, actions }) {
 // COURSE
 // ---------------------------------------------------------------------------
 
+/**
+ * COURSE — the comparison table, and why it survived the map.
+ *
+ * The map now answers "where", and it answers it far better than a list ever
+ * did: you can see that Mars is on the far side of the Sun. But a map is a
+ * terrible way to answer "which of these eighteen is cheapest", and that is the
+ * question a player actually has in front of them. So this stayed, and it
+ * stopped pretending to be a menu and became a TABLE — one you can sort.
+ *
+ * Three orders, because there are three different questions:
+ *   Soonest    — the clock is the scarce thing (wages, a shortage that will ease)
+ *   Cheapest   — the tank is the scarce thing
+ *   Best paid  — what the hold is actually worth at the far end
+ *
+ * The third is the one no map can show, and it is the reason this screen is not
+ * redundant. It reads intel, so it is as stale as the light-lag makes it — which
+ * the column says.
+ */
+const ORDERS = [
+  { id: "soon", label: "Soonest", of: (d) => d.cost.days },
+  { id: "cheap", label: "Cheapest", of: (d) => d.cost.fuelTonnes },
+  { id: "paid", label: "Best paid", of: (d) => -(d.payoff || 0) },
+];
+
 function Course({ game, dest, setDest, actions }) {
   const [showFar, setShowFar] = useState(false);
-  const list = destinations(game).filter((d) => d.cost)
-    .sort((a, b) => a.cost.days - b.cost.days);
+  const [order, setOrder] = useState("soon");
+  const carrying = cargoUsed(game.player) > 0;
+
+  const list = destinations(game).filter((d) => d.cost).map((d) => ({
+    ...d,
+    // What the hold would fetch there, minus what it cost to buy. Null when the
+    // hold is empty — an empty ship has nothing to compare, and a column of
+    // zeroes would be worse than no column.
+    // What the hold FETCHES there. Gross, not margin: the cost basis is already
+    // shown on the sell screen, and a column that quietly subtracted it would be
+    // a second, different number under the same word.
+    payoff: carrying ? cargoValueAt(game, d.site.id)?.total ?? null : null,
+  }));
   const chosen = dest && list.find((d) => d.site.id === dest);
   if (chosen) return <DestinationScreen game={game} entry={chosen} back={() => setDest(null)} actions={actions} />;
+
+  const by = ORDERS.find((o) => o.id === order) || ORDERS[0];
+  const sorted = [...list].sort((a, b) => by.of(a) - by.of(b));
 
   // THE LIST SPLITS WHERE THE ROCKET EQUATION SPLITS IT. Eighteen ports in one
   // column is the scroll Joshua was complaining about, and ten of them are walls
   // rather than choices — the tank could not hold the propellant even full. So
   // the ones you can actually fly to come first, and the rest are one click away
   // with the reason attached, which is where they teach something anyway.
-  const near = list.filter((d) => d.cost.reachable);
-  const far = list.filter((d) => !d.cost.reachable);
+  const near = sorted.filter((d) => d.cost.reachable);
+  const far = sorted.filter((d) => !d.cost.reachable);
 
-  const row = ({ site, cost }) => {
+  const row = ({ site, cost, payoff }) => {
     const rep = repAt(game, site.id);
     const ok = cost.reachable && cost.enoughFuel;
     return (
@@ -691,7 +730,10 @@ function Course({ game, dest, setDest, actions }) {
             {rep && <Tag tone={rep.standing >= 15 ? "ok" : rep.standing <= -30 ? "hot" : undefined}>{rep.tier.name}</Tag>}
           </>}
           sub={`${SYSTEM_BY_ID[site.system]?.name}${dailyCost(game) > 0 && cost.reachable ? ` · ${money(tripCost(game, cost.days))} wages` : ""}`} />
-        <RowValue top={`${cost.fuelTonnes.toFixed(0)} t`} bottom={fmtDur(cost.days)} tone={ok ? "ok" : "hot"} />
+        <RowValue
+          top={order === "paid" && payoff != null ? money(payoff) : `${cost.fuelTonnes.toFixed(0)} t`}
+          bottom={order === "paid" && payoff != null ? `${cost.fuelTonnes.toFixed(0)} t · ${fmtDur(cost.days)}` : fmtDur(cost.days)}
+          tone={order === "paid" && payoff != null ? (payoff > 0 ? "ok" : "hot") : (ok ? "ok" : "hot")} />
       </InfoRow>
     );
   };
@@ -707,12 +749,104 @@ function Course({ game, dest, setDest, actions }) {
   }
 
   return (
-    <Screen title="Where to?" hint="Cost is propellant and months. Pick one to price the trip.">
+    <Screen title="Where to?" hint="The map shows you where. This shows you which.">
+      {/* SORTING IS THE WHOLE REASON THIS SCREEN OUTLIVED THE MAP. */}
+      <div style={ST.sortRow}>
+        {ORDERS.map((o) => {
+          const dead = o.id === "paid" && !carrying;
+          return (
+            <button key={o.id} disabled={dead} onClick={() => setOrder(o.id)}
+              aria-pressed={order === o.id}
+              title={dead ? "Load some cargo and this can rank by what it fetches" : undefined}
+              style={{ ...ST.sortBtn, ...(order === o.id ? ST.sortOn : null), ...(dead ? ST.sortDead : null) }}>
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
       {near.map(row)}
       {far.length > 0 && (
         <NavButton icon="⛔" label="Out of range" onClick={() => setShowFar(true)}
           note="Beyond what this ship can carry propellant for" value={`${far.length} port${far.length === 1 ? "" : "s"}`} tone="hot" />
       )}
+      {order === "paid" && carrying && (
+        <Footnote>
+          What the hold fetches is an ESTIMATE, and the further away a port is the older the
+          estimate — prices travel at the speed of light like everything else. Sorting by it
+          is a bet, which is the honest version of a trading game.
+        </Footnote>
+      )}
+    </Screen>
+  );
+}
+
+/**
+ * COURSE PREVIEW — what the panel says while you point at a port on the map.
+ *
+ * The merge, and the smallest honest version of it: a map that costs a trip the
+ * moment you look at a place, without committing you to it. Everything here is
+ * the same arithmetic the Course tab uses; the difference is that you asked with
+ * a cursor instead of a tab.
+ *
+ * Read-only ON PURPOSE. A preview that could launch would make a mouse drifting
+ * across a map an eight-month commitment. Clicking the pin is what plots it, and
+ * the button here just does the same thing.
+ */
+export function CoursePreview({ game, siteId, onGo }) {
+  const site = siteOf(game, siteId);
+  const cost = travelCost(game, siteId);
+  if (!site) return null;
+  const rep = repAt(game, siteId);
+  const carrying = cargoUsed(game.player) > 0;
+  const cargo = carrying ? cargoValueAt(game, siteId) : null;
+  const dep = importDependency(game, siteId);
+
+  return (
+    <Screen title={site.name} hint={`${SYSTEM_BY_ID[site.system]?.name} · pointing at it, not committed to it`}>
+      {cost ? (
+        <StatStrip items={[
+          { label: "Propellant", value: `${cost.fuelTonnes.toFixed(1)} t`,
+            tone: cost.reachable ? (cost.enoughFuel ? "ok" : "hot") : "hot" },
+          { label: "Time", value: fmtDur(cost.days) },
+          { label: "Wages", value: dailyCost(game) ? money(tripCost(game, cost.days)) : "none",
+            tone: dailyCost(game) ? "hot" : undefined },
+        ]} />
+      ) : <Footnote>You are already here.</Footnote>}
+
+      {cost && !cost.reachable && (
+        <div style={ST.warn}>{cost.reason}</div>
+      )}
+      {cost && cost.reachable && !cost.enoughFuel && (
+        <div style={ST.warn}>Not enough propellant aboard. Refuel before you launch.</div>
+      )}
+
+      {cargo && (
+        <>
+          <div style={ST.deadHead}>What the hold would fetch</div>
+          <div style={ST.previewBig}>{money(cargo.total)}</div>
+          <div style={ST.previewNote}>
+            {cargo.freshness?.label || "estimated"} — prices travel at the speed of light, so the
+            further off a port is the older this number is.
+          </div>
+        </>
+      )}
+
+      {dep && (
+        <>
+          <div style={ST.deadHead}>What it cannot make</div>
+          <div style={ST.previewNote}>
+            Imports {dep.imported.length} of the {dep.needs} things it needs
+            {dep.imported.length ? `: ${dep.imported.map((id) => COMMODITY_BY_ID[id]?.name.toLowerCase()).join(", ")}.` : "."}
+          </div>
+        </>
+      )}
+
+      {rep && <div style={ST.previewNote}>They think of you as <b>{rep.tier.name.toLowerCase()}</b>.</div>}
+
+      {cost?.reachable && (
+        <PrimaryButton onClick={onGo}>Plot this course</PrimaryButton>
+      )}
+      <Footnote>{site.why}</Footnote>
     </Screen>
   );
 }
@@ -908,4 +1042,15 @@ const ST = {
   track: { position: "relative", height: 8, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 5, overflow: "hidden" },
   fill: { position: "absolute", top: 0, bottom: 0, minWidth: 2 },
   zero: { position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "var(--line)" },
+  // Section headings inside a screen. `section` above is the same idea at a
+  // smaller size; this one separates GROUPS of rows rather than labelling a
+  // block, so it carries a rule above it.
+  deadHead: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", padding: "14px 0 5px", borderTop: "1px solid var(--line)", marginTop: 10 },
+  sortRow: { display: "flex", gap: 6, margin: "0 0 10px" },
+  sortBtn: { flex: 1, background: "var(--panel-2)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", borderRadius: 8, padding: "6px 4px", cursor: "pointer", color: "var(--muted)", fontSize: 12, whiteSpace: "nowrap" },
+  sortOn: { borderColor: "var(--gold)", color: "var(--gold)", fontWeight: 700 },
+  sortDead: { opacity: 0.4, cursor: "not-allowed" },
+  warn: { margin: "0 0 10px", padding: "9px 11px", background: "rgba(214,90,74,0.08)", borderWidth: "1px", borderStyle: "solid", borderColor: "rgba(214,90,74,0.4)", borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, color: "#E8C0BA" },
+  previewBig: { fontSize: 24, fontWeight: 700, color: "var(--gold)", fontVariantNumeric: "tabular-nums" },
+  previewNote: { fontSize: 12, color: "var(--muted)", lineHeight: 1.55, marginTop: 5 },
 };

@@ -27,7 +27,7 @@ import { hasSurfaceMap } from "../surface.js";
 import { build as buildWorks } from "../industry.js";
 import { PROCESS_BY_ID } from "../data/industry.js";
 import { useSfx } from "./sfx.jsx";
-import Panel, { SystemAtlas } from "./panels.jsx";
+import Panel, { SystemAtlas, CoursePreview } from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
@@ -107,6 +107,11 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   // `zoom` so backing out of a surface returns to the system it belongs to
   // rather than all the way to the Sun.
   const [surface, setSurface] = useState(null);
+  // THE MAP AND THE PANEL, MERGED. Pointing at a port on the map fills the panel
+  // with what that trip would cost, without committing to it; clicking commits.
+  // The map answers "where", the panel answers "what would that cost", and they
+  // now answer at the same time instead of in two different tabs.
+  const [preview, setPreview] = useState(null);
   // MENU IS A PAUSE, NOT AN EXIT. It used to drop you straight back to the title
   // screen, which is a destructive-feeling action to put one click from the
   // player's thumb with no confirmation. It opens this instead.
@@ -195,6 +200,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   }, [paused]);
   // Escape unwinds ONE level: surface → system → solar system. Collapsing both
   // at once would make the deepest screen the hardest to leave gracefully.
+  useEffect(() => { setPreview(null); }, [zoom, surface]);
   useEffect(() => {
     if (!zoom && !surface) return;
     const onKey = (e) => {
@@ -355,7 +361,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
                 onPick={pickSite} />
             : zoom
             ? <SystemView game={game} systemId={zoom} dest={dest} onBack={() => setZoom(null)}
-                onPick={pickSite} onOpenSurface={setSurface} />
+                onPick={pickSite} onOpenSurface={setSurface} onHover={setPreview} />
             : <>
                 <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
                   onZoom={(id) => setZoom(id)} trueScale={trueScale} />
@@ -373,7 +379,14 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
             // THE MAP AND THE PANEL MOVE TOGETHER. Clicking a planet opens its
             // system on the map and its atlas here, so what you are reading
             // about is what you are looking at. Backing out returns both.
-            <SystemAtlas game={game} systemId={zoom} onBack={() => setZoom(null)} />
+            //
+            // And pointing at a PORT replaces the atlas with that trip's cost —
+            // the merge Joshua asked for. It is a preview, not a commitment: the
+            // panel changes, nothing else does, and moving off puts the atlas
+            // back. Clicking is still what plots the course.
+            preview && preview !== game.player.at
+              ? <CoursePreview game={game} siteId={preview} onGo={() => pickSite(preview)} />
+              : <SystemAtlas game={game} systemId={zoom} onBack={() => setZoom(null)} />
           ) : transit ? (
             <TransitPanel game={game} />
           ) : (
@@ -1045,7 +1058,7 @@ function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
 // Radii are compressed logarithmically for the same reason the orrery is: drawn
 // to scale, Phobos would be inside the planet dot and Iapetus off the board.
 // ---------------------------------------------------------------------------
-function SystemView({ game, systemId, dest, onPick, onBack, onOpenSurface }) {
+function SystemView({ game, systemId, dest, onPick, onBack, onOpenSurface, onHover }) {
   const sys = SYSTEM_BY_ID[systemId];
   const moons = MOONS[systemId] || [];
   const belt = systemId === "belt" ? BELT_BODIES : [];
@@ -1160,7 +1173,7 @@ function SystemView({ game, systemId, dest, onPick, onBack, onOpenSurface }) {
       {atPlanet.map((s, i) => {
         const a = angleFor(i, atPlanet.length, 90);
         const x = CX + PLANET_RING * Math.cos(a), y = CY + PLANET_RING * Math.sin(a);
-        return <SitePin key={s.id} site={s} x={x} y={y} here={s.id === hereId} sel={dest === s.id} onPick={onPick} />;
+        return <SitePin key={s.id} site={s} x={x} y={y} here={s.id === hereId} sel={dest === s.id} onPick={onPick} onHover={onHover} />;
       })}
 
       {placed.map((b) => (
@@ -1171,7 +1184,7 @@ function SystemView({ game, systemId, dest, onPick, onBack, onOpenSurface }) {
               right-hand edge would push a 108px-wide pin off the board. */}
           {b.sites.map((s, i) => (
             <SitePin key={s.id} site={s} x={b.x} y={b.y + 30 + i * 30}
-              here={s.id === hereId} sel={dest === s.id} onPick={onPick} />
+              here={s.id === hereId} sel={dest === s.id} onPick={onPick} onHover={onHover} />
           ))}
         </g>
       ))}
@@ -1225,7 +1238,7 @@ function Body({ id, cx, cy, r, name, fill, labelDy, fontSize = 12, onOpen }) {
 
 /** A port on the system map. Clicking one selects it as your destination and
  *  opens the course plotter — the map picks the trip, the panel prices it. */
-function SitePin({ site, x, y, here, sel, onPick }) {
+function SitePin({ site, x, y, here, sel, onPick, onHover }) {
   // THE PIN FITS THE NAME, rather than the name being cut to fit the pin. It was
   // a fixed 108 units wide with everything past fourteen characters replaced by
   // an ellipsis, which turned "Tranquillitatis lava tube Archive" and "Sunward
@@ -1244,6 +1257,12 @@ function SitePin({ site, x, y, here, sel, onPick }) {
   return (
     <g role="button" tabIndex={0} style={{ cursor: "pointer" }}
       aria-label={`${site.name}${here ? ", where you are docked" : ""}. Plot a course.`}
+      // Focus as well as hover, so a player tabbing the map gets the same
+      // preview a player pointing at it does (project rule 4).
+      onMouseEnter={() => onHover?.(site.id)}
+      onMouseLeave={() => onHover?.(null)}
+      onFocus={() => onHover?.(site.id)}
+      onBlur={() => onHover?.(null)}
       onClick={() => onPick(site.id)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(site.id); } }}>
       <rect x={cx - w / 2} y={y - h / 2} width={w} height={h} rx={7}

@@ -185,6 +185,44 @@ describe("the industry screen", () => {
   });
 });
 
+describe("the map and the Course tab, merged", () => {
+  it("sorts the comparison table three ways", () => {
+    // The reason the Course tab outlived the map: a map is a bad way to answer
+    // "which of these eighteen is cheapest", and this is that question.
+    render(playScreen(freshGame()));
+    click(byText(/Course/));
+    for (const label of [/Soonest/, /Cheapest/]) {
+      const b = byText(label);
+      expect(b, `no ${label} control`).toBeTruthy();
+      click(b);
+      expectQuiet();
+    }
+    // "Best paid" is dead with an empty hold rather than showing a column of
+    // zeroes, and it says why in its title.
+    expect(byText(/Best paid/).disabled).toBe(true);
+  });
+
+  it("previews a trip when you point at a port on the map", () => {
+    render(playScreen(freshGame()));
+    const earth = [...container.querySelectorAll("[role=button]")]
+      .find((e) => (e.getAttribute("aria-label") || "").startsWith("Earth"));
+    act(() => { earth.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
+
+    const pin = [...container.querySelectorAll("[role=button]")]
+      .find((e) => /Plot a course/.test(e.getAttribute("aria-label") || "")
+        && !/docked/.test(e.getAttribute("aria-label") || ""));
+    expect(pin, "no port pin to point at").toBeTruthy();
+    act(() => { pin.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })); });
+    expectQuiet();
+    expect(text()).toContain("pointing at it, not committed to it");
+    expect(text()).toContain("Plot this course");
+
+    // And moving off puts the atlas back rather than stranding the preview.
+    act(() => { pin.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true })); });
+    expectQuiet();
+  });
+});
+
 describe("the map, at all three depths", () => {
   it("opens every system from the orrery", () => {
     render(playScreen(freshGame()));
