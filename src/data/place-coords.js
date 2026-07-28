@@ -7,10 +7,18 @@
 // surface, from the IAU Gazetteer of Planetary Nomenclature's own bulk export
 // (https://planetarynames.wr.usgs.gov/GIS_Downloads — public domain).
 //
-// `lat` is planetocentric latitude; `lonE` is EAST longitude in −180..180, the
-// same convention data/features.js uses. `iauName` is the IAU's name for the
-// feature, which is often not ours: we name places for what they are FOR, and
-// the gazetteer names them for whoever the IAU was honouring.
+// `lat` is planetocentric latitude; `lonE` is EAST longitude in −180..180 —
+// the convention the PLATES use, since every image in public/plates/ is centred
+// on 0° longitude. It is NOT the convention data/features.js uses (that file is
+// 0–360, and three of its longitudes are west values recorded as east); read
+// this file, not that one. `iauName` is the IAU's name for the feature, which
+// is often not ours: we name places for what they are FOR, and the gazetteer
+// names them for whoever the IAU was honouring.
+//
+// `target` is the body the feature is actually ON, and it is the field the
+// surface map keys on. A place's `body` in places.js means "nearest charted
+// anchor" and disagrees in a handful of cases — Sputnik Planitia is filed under
+// charon there and is unambiguously on Pluto.
 //
 // PLACES ABSENT FROM THIS FILE HAVE NO SURFACE COORDINATE, and that is a fact
 // about them rather than a gap in the data. Low Earth orbit, the Lagrange

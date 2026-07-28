@@ -91,6 +91,130 @@ of this file is the detail that block points at.
 
 ---
 
+## Session of 2026-07-28 (second) — the surface map, and a seam that was wrong everywhere
+
+**The two blockers on the surface map both had better answers than the questions
+assumed**, and finding them turned up a shipped bug.
+
+### Blocker (a): "only Luna and Mars have enough places" — wrong framing
+
+A map does not have to show only OUR ports. `.cache/gazetteer/` already held the
+IAU bulk exports for all 17 bodies from the last session, and every one of them
+has real named geography: **15,335 approved features**, from 2 on Deimos to 9,086
+on the Moon. So `scripts/gen-place-coords.mjs` now writes a second generated file,
+`src/data/landmarks.js` — 320 landmarks across 17 worlds, 33 KB — and Ceres stops
+being a dot on a photograph and becomes Occator in a landscape with Kerwan and
+Ahuna Mons in it.
+
+**The selection rule is the only judgement in that data, and it is stated in the
+file:** largest first, at most three of any one feature type, twenty per body,
+then backfill largest-first if the type cap leaves a world short. Diameter alone
+is the obvious rule and it is wrong — on Mars it returns twenty continent-sized
+terrae and not one volcano, because Terra Cimmeria is 5,856 km and Olympus Mons
+is 610. The cap is what earns Tharsis Montes, Ahuna Mons and Loki Patera their
+places. The backfill is what stops Callisto (which IS craters) getting ten
+landmarks out of 154 available.
+
+Joshua chose: **every body with a placed port gets a map**, plate or no plate.
+Five bodies have photographic plates; the rest draw on a flat field with a real
+graticule and real landmarks, which is honest and still a map.
+
+### Blocker (b): the lunar plate — found and licence-checked
+
+**`File:CGI Moon Kit - Lroc color poles.tif`** — NASA Scientific Visualization
+Studio (svs.gsfc.nasa.gov/4720), LROC WAC colour mosaic, public domain per the
+Commons file page, 27360×13680 = exactly 2:1, centred on 0°, **poles filled in**.
+Ships at 219 KB through the existing pipeline. In the manifest, `checked` 2026-07-28.
+
+The other PD candidate — USGS's Clementine 750 nm albedo map, also exactly 2:1 —
+was **rejected on sight**: black unimaged bands at both poles, and Shackleton is
+at −89.67°, inside them. A lunar plate with a hole where the polar shadow is
+defeats the only reason that body most needs a map. The reason is recorded in the
+manifest so nobody re-proposes it.
+
+**How it was found, because Commons full-text search is useless for this:** the
+API's `list=categorymembers` on `Category:Maps_of_the_Moon`. Full-text search
+buries global mosaics under thousands of per-crater frames. That note is now in
+the script header.
+
+### ⚠ THE BUG: every plate is centred on 0°, and one renderer never knew
+
+`public/plates/*.jpg` all run **−180° at the left edge to +180° at the right**.
+Confirmed by eye against `mars.jpg`: Hellas Planitia (70.5°E, 42.4°S) lands at
+69.6% across and 73% down, exactly where the bright oval is.
+
+`wanderer.jsx`'s survey-era `BodyView` projected `lonE / 360`, which assumes 0° at
+the LEFT edge. **Every pin on that screen has been half a world out since it was
+written** — Olympus Mons drawn at 63% across a map where it belongs at 13%, in the
+middle of Syrtis Major. It looked completely plausible, which is why nothing
+caught it. Fixed (one line; the modulo form agrees for both 0–360 and −180..180
+inputs, since they are the same angle).
+
+**And a second, separate wrongness it exposed:** four of `data/features.js`'s
+fourteen coordinates are WEST longitudes recorded as east —
+
+| feature | features.js | should be (gazetteer) |
+|---|---|---|
+| Loki Patera | 308.8 | 51.2°E |
+| Conamara Chaos | 274.0 | 86.5°E |
+| Damascus Sulcus | 300 | 74.1°E |
+| Kraken Mare | 310 | 50°E |
+
+All four are outer-planet satellites, whose IAU convention is west longitude.
+**NOT patched**, deliberately: `features.js` is the hand-written draft content
+design.md §11 already flags, and patching four of fourteen would make it look
+vetted when it is not. The authoritative values are already generated in
+`place-coords.js`. That file wants regenerating, not mending — and this is now a
+measured example of what "content is a draft" actually costs.
+
+Also found: `place-coords.js`'s own generated header claimed it used "the same
+convention data/features.js uses". It does not, and that sentence would have
+misled the next person to build on it. Corrected in the generator.
+
+### What landed
+
+- **`src/surface.js`** — pure. `surfaceReport()`, `bodyOf()`, `polarNight()`,
+  `seasonAmplitude()`, `nightOutlines()`. 31 tests.
+- **`src/trader/surface.jsx`** — `SurfaceView` (the map) and `SurfacePanel` (the
+  reading beside it). Kept out of `play.jsx`, which is already 1,295 lines.
+- **Third map level.** `surface` state beside `zoom`; Esc unwinds ONE level, so
+  the deepest screen is not the hardest to leave. Bodies we hold geography for
+  carry a dashed ring; gas giants stay inert, which is the right lesson about
+  Jupiter.
+- **`illumination.js` is finally called by the game** — first time since the
+  pivot. Terminator, lit/dark pins, sun altitude, polar night, and `saySolarDay`.
+
+**Two things the screen refuses to claim,** both printed on it rather than hidden:
+the rates are real but the PHASE is not epoch-anchored (so it shows how the light
+moves, never what time it is at a named place on a named day); and the model works
+on a smooth sphere, so **Shackleton's permanent shadow is NOT what this draws** —
+that is a fact about the crater's rim, not its latitude. `phaseAnchored` is false
+on every report and a test pins it there.
+
+### Gotchas from this session
+
+- **`nightSpans()` is the wrong shape for a picture.** Drawn as 120 rectangles the
+  terminator is a visible staircase, because near the terminator a few degrees of
+  longitude move the boundary a long way in latitude. `nightOutlines()` joins them
+  into polygons. Two traps in that: darkness spanning ±180 must come back as TWO
+  regions (the map's edges are not adjacent) while darkness spanning 0° must stay
+  ONE, and at equinox `nightSpans` emits nothing at all for lit columns so the
+  present columns are not contiguous. Both are tested.
+- **`site.body` is not the world a place is on.** It means "nearest charted
+  anchor" — Sputnik Planitia is filed under `charon` and is unambiguously on
+  Pluto. The map keys on the gazetteer's `target` via `bodyOf()` instead, which
+  sidesteps the whole class. The census entries are still wrong and still worth
+  fixing.
+- **Ceres and Vesta are ports and are NOT in `ROTATION`.** `isLit()`'s fallback
+  returns lit-at-45° — right for "don't block a photograph", wrong for a map that
+  states facts. `surfaceReport` passes the gap through as null and the panel says
+  so. **Small sourceable follow-up:** add their real rotation periods and tilts
+  from the IAU WGCCRE report and they get terminators like everything else.
+- **A NaN/crash in the console mid-session was an HMR artefact**, not a defect:
+  the component had the new polygon data while still running the old rect JSX.
+  Confirmed stale by reloading twice and reopening five maps with no new entries.
+  Worth knowing before chasing one.
+
 ## Session of 2026-07-28 — the interface session
 
 Almost none of this was new systems; it was making the game legible. Joshua
@@ -592,16 +716,20 @@ Added 2026-07-27, also unanswered:
 
 Surface every one of these when it becomes relevant rather than building past it.
 
-**Asked and unanswered this session:**
-- **Surface map scope.** Only Luna (7 places) and Mars (5) have enough places to
-  justify a map; every other body has exactly one. Build for two bodies and fall
-  back to the system view elsewhere, or something else?
-- **No lunar plate exists.** `public/plates/` has mars, mercury, europa,
-  enceladus. Luna — the body that most needs one — is missing, and adding it
-  means a licence-checked entry in `scripts/fetch-plates.mjs` (read that header).
+**ANSWERED 2026-07-28 (second session), kept for the record:**
+- ~~Surface map scope~~ → **every body with a placed port**, using generated IAU
+  landmarks as context. Built.
+- ~~The lunar plate~~ → **NASA SVS CGI Moon Kit**, public domain, poles filled.
+  Fetched and in the manifest.
+
+**Still asked and unanswered:**
 - **Course tab after a map/panel merge:** does it disappear entirely, or survive
   as a sortable comparison list? A list beats a map for "which of these is
-  cheapest".
+  cheapest". My recommendation, on record and not yet acted on: KEEP it as a
+  sortable table reached from the map. Joshua's own measurement is the argument —
+  trip lengths are bimodal (~26% six-day hops, ~70% six months to years), so the
+  interesting comparison is a column of numbers, not a spatial layout. The map
+  answers *where*; a table answers *which of these eighteen*.
 - **Difficulty.** Now cycles in the pause menu, stores a value, and is wired to
   NOTHING — the dialog says so. `design.md` §12 explicitly declined difficulty
   settings ("our difficulty is the rocket equation and the faction draw"). Joshua

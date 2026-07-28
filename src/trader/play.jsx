@@ -22,6 +22,8 @@ import { contextOf } from "../audio.js";
 import { starfield, galacticBand, skySeed, beltScatter } from "../starfield.js";
 import { hireCrew, dismissCrew } from "../crew.js";
 import { FaceOff } from "./ships.jsx";
+import { SurfaceView, SurfacePanel } from "./surface.jsx";
+import { hasSurfaceMap } from "../surface.js";
 import Panel, { SystemAtlas } from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter } from "../encounters.js";
@@ -83,6 +85,10 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   const [toast, setToast] = useState(null);
   // Which system the map is inside, or null for the whole solar system.
   const [zoom, setZoom] = useState(null);
+  // And which BODY's surface, one level deeper still. Held separately from
+  // `zoom` so backing out of a surface returns to the system it belongs to
+  // rather than all the way to the Sun.
+  const [surface, setSurface] = useState(null);
   // MENU IS A PAUSE, NOT AN EXIT. It used to drop you straight back to the title
   // screen, which is a destructive-feeling action to put one click from the
   // player's thumb with no confirmation. It opens this instead.
@@ -157,12 +163,17 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [paused]);
+  // Escape unwinds ONE level: surface → system → solar system. Collapsing both
+  // at once would make the deepest screen the hardest to leave gracefully.
   useEffect(() => {
-    if (!zoom) return;
-    const onKey = (e) => { if (e.key === "Escape") setZoom(null); };
+    if (!zoom && !surface) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (surface) setSurface(null); else setZoom(null);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [zoom]);
+  }, [zoom, surface]);
 
   // The encounter: choose, see what it cost, then get back under way.
   const doChoose = (choice) => {
@@ -193,7 +204,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     setGame(r.game); setDest(null); setSel(null);
     // Back out to the solar system: the leg is a heliocentric arc, and a system
     // view cannot draw it. Watching the ship cross is the point of launching.
-    setZoom(null);
+    setZoom(null); setSurface(null);
     flash(`Under way to ${siteOf(game, destId)?.name}. Run the clock.`);
   };
   const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
@@ -229,6 +240,14 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   };
   const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
 
+  // Picking a port, from whichever level of the map you are on. The map picks
+  // the trip; the course plotter prices it. Shared so the system view and the
+  // surface view cannot drift apart in what a click means.
+  const pickSite = (id) => {
+    if (id === game.player.at) { setMode("dock"); return; }
+    setDest(id); setMode("travel");
+  };
+
   // Everything the panel screens can do, in one bundle. The screens live in
   // panels.jsx and hold no game state of their own — they read the game and
   // call these, which keeps every mutation in one file with the clock.
@@ -258,13 +277,12 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
         audio={audio} cue={cue} onToggleAudio={onToggleAudio} onAudioLevel={onAudioLevel} />
       <div style={S.main}>
         <div style={S.stage}>
-          {zoom
+          {surface
+            ? <SurfaceView game={game} bodyId={surface} dest={dest} onBack={() => setSurface(null)}
+                onPick={pickSite} />
+            : zoom
             ? <SystemView game={game} systemId={zoom} dest={dest} onBack={() => setZoom(null)}
-                onPick={(id) => {
-                  // The map picks the trip; the course plotter prices it.
-                  if (id === game.player.at) { setMode("dock"); return; }
-                  setDest(id); setMode("travel");
-                }} />
+                onPick={pickSite} onOpenSurface={setSurface} />
             : <>
                 <Orrery positions={positions} orbits={orbits} game={game} dest={dest}
                   onZoom={(id) => setZoom(id)} trueScale={trueScale} />
@@ -276,6 +294,8 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
             <GameOver game={game} onQuit={onQuit} />
           ) : game.encounter ? (
             <EncounterPanel game={game} onChoose={doChoose} onDismiss={doDismiss} />
+          ) : surface ? (
+            <SurfacePanel game={game} bodyId={surface} onBack={() => setSurface(null)} />
           ) : zoom ? (
             // THE MAP AND THE PANEL MOVE TOGETHER. Clicking a planet opens its
             // system on the map and its atlas here, so what you are reading
@@ -907,7 +927,7 @@ function Orrery({ positions, orbits, game, dest, onZoom, trueScale }) {
 // Radii are compressed logarithmically for the same reason the orrery is: drawn
 // to scale, Phobos would be inside the planet dot and Iapetus off the board.
 // ---------------------------------------------------------------------------
-function SystemView({ game, systemId, dest, onPick, onBack }) {
+function SystemView({ game, systemId, dest, onPick, onBack, onOpenSurface }) {
   const sys = SYSTEM_BY_ID[systemId];
   const moons = MOONS[systemId] || [];
   const belt = systemId === "belt" ? BELT_BODIES : [];
@@ -1010,13 +1030,12 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
           <text x={CX} y={CY + 32} style={{ ...S.pin, fill: "#9FAAC2", fontSize: 12 }}>the Sun</text>
         </g>
       ) : (
-        <g>
-          <circle cx={CX} cy={CY} r={40} fill={sys?.color || "#9AA6B8"} stroke="#070A12" strokeWidth="2" />
-          {/* The primary's name goes ABOVE it. Below is where the ring of site
-              pins lands (PLANET_RING = 122), and "Mars" was being sat on by
-              whichever settlement happened to be drawn at the bottom. */}
-          <text x={CX} y={CY - 52} style={{ ...S.pin, fill: "#fff", fontSize: 16 }}>{sys?.name}</text>
-        </g>
+        // THE PRIMARY IS A DOOR. Clicking it opens the world's own surface —
+        // the third level of the map — for the bodies we hold real coordinates
+        // for. Gas giants have no surface to stand on and stay inert, which is
+        // itself the right lesson about Jupiter.
+        <Body id={systemId} cx={CX} cy={CY} r={40} name={sys?.name}
+          fill={sys?.color || "#9AA6B8"} labelDy={-52} fontSize={16} onOpen={onOpenSurface} />
       )}
       {/* Ports on the primary itself start at the BOTTOM of their ring, so the
           first one never lands under the planet's name at the top. */}
@@ -1028,8 +1047,8 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
 
       {placed.map((b) => (
         <g key={b.id}>
-          <circle cx={b.x} cy={b.y} r={Math.max(6, dot(b.radiusKm, 1.6))} fill="#C9CFDC" stroke="#070A12" strokeWidth="1.5" />
-          <text x={b.x} y={b.y - Math.max(6, dot(b.radiusKm, 1.6)) - 9} style={{ ...S.pin, fill: "#B9C2D4" }}>{b.name}</text>
+          <Body id={b.id} cx={b.x} cy={b.y} r={Math.max(6, dot(b.radiusKm, 1.6))} name={b.name}
+            fill="#C9CFDC" labelDy={-Math.max(6, dot(b.radiusKm, 1.6)) - 9} onOpen={onOpenSurface} />
           {/* Stacked downward, never spread sideways: a body sitting near the
               right-hand edge would push a 108px-wide pin off the board. */}
           {b.sites.map((s, i) => (
@@ -1050,6 +1069,39 @@ function SystemView({ game, systemId, dest, onPick, onBack }) {
         <text x="116" y="50" style={{ ...S.pin, fill: "#CDD5E4", fontSize: 14 }}>← Solar system (Esc)</text>
       </g>
     </svg>
+  );
+}
+
+/**
+ * A world on the system map — the primary, a moon, or a belt body.
+ *
+ * Clickable when we hold real surface coordinates for it, inert when we do not.
+ * The affordance is a faint ring rather than a colour change, because colour is
+ * never allowed to be the only carrier of meaning here (project rule 4) and
+ * because a ring reads as "there is more inside this" without shouting.
+ */
+function Body({ id, cx, cy, r, name, fill, labelDy, fontSize = 12, onOpen }) {
+  const openable = Boolean(onOpen) && hasSurfaceMap(id);
+  // Named `mark`, not `dot` — `dot()` is the module-level radius helper this
+  // file already uses two hundred lines up, and shadowing it here would be a
+  // trap for whoever edits this next.
+  const mark = (
+    <>
+      <circle cx={cx} cy={cy} r={r} fill={fill} stroke="#070A12" strokeWidth={r > 20 ? 2 : 1.5} />
+      <text x={cx} y={cy + labelDy} style={{ ...S.pin, fill: r > 20 ? "#fff" : "#B9C2D4", fontSize }}>{name}</text>
+    </>
+  );
+  if (!openable) return <g>{mark}</g>;
+  return (
+    <g role="button" tabIndex={0} style={{ cursor: "pointer" }}
+      aria-label={`${name}. Open its surface map.`}
+      onClick={() => onOpen(id)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(id); } }}>
+      <circle cx={cx} cy={cy} r={Math.max(r + 12, 20)} fill="transparent" />
+      <circle cx={cx} cy={cy} r={r + 6} fill="none" stroke="#9FB2C8" strokeOpacity={0.45}
+        strokeWidth={1.2} strokeDasharray="3 4" />
+      {mark}
+    </g>
   );
 }
 

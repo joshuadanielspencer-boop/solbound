@@ -819,7 +819,21 @@ function BodyView({ bodyId, onPick, picked, hideNames, t }) {
   const moonDef = Object.values(MOONS).flat().find((m) => m.id === bodyId);
   const color = sys?.color || "#9AA6B8";
   const W = 940, H = 470, X0 = (VB - W) / 2, Y0 = (VB - H) / 2;
-  const px = (lonE) => X0 + (lonE / 360) * W, py = (lat) => Y0 + ((90 - lat) / 180) * H;
+  // ⚠ THE SEAM. This was `lonE / 360`, which assumes 0° longitude at the LEFT
+  // edge of the plate. Every plate in public/plates/ is centred on 0° and runs
+  // −180° to +180°, so every pin on this screen has been half a world out since
+  // it was written — Olympus Mons drawn at 63% across a map where it belongs at
+  // 13%, in the middle of Syrtis Major. Found on 2026-07-28 while building the
+  // trade game's surface map, which uses this corrected form (src/trader/surface.jsx).
+  // The modulo makes it agree for both conventions, since data/features.js
+  // stores 0–360 and place-coords.js stores −180..180 and they are the same angle.
+  //
+  // This fixes WHERE a coordinate is drawn. It does not fix a coordinate that is
+  // wrong: four of features.js's fourteen are west longitudes recorded as east
+  // (Loki Patera, Conamara Chaos, Damascus Sulcus, Kraken Mare — see the draft
+  // notice below and docs/handoff.md). Those need the file regenerated, not patched.
+  const px = (lonE) => X0 + (((((lonE + 180) % 360) + 360) % 360) / 360) * W;
+  const py = (lat) => Y0 + ((90 - lat) / 180) * H;
 
   return (
     <g>

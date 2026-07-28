@@ -1,9 +1,29 @@
 // ===========================================================================
 // GEN-PLACE-COORDS — real coordinates for every place in the census that has
-// one, from the IAU Gazetteer of Planetary Nomenclature.
+// one, from the IAU Gazetteer of Planetary Nomenclature. Writes TWO files:
+//
+//   src/data/place-coords.js   where our ports are
+//   src/data/landmarks.js      what else is on that world, so the map is a map
 //
 //   node scripts/gen-place-coords.mjs            # fetch, match, write
 //   node scripts/gen-place-coords.mjs --report   # show what matched, write nothing
+//
+// WHY THE SECOND FILE. Almost every body in the census has exactly ONE port on
+// it, and a surface map showing a single dot on an empty plate is worse than no
+// map at all — it teaches nothing and it looks broken. The fix is not to invent
+// more ports. It is that these are REAL WORLDS with real named geography, and
+// the same gazetteer that placed the ports has between 2 and 9,086 approved
+// features per body sitting in the same download. Ceres stops being a dot and
+// becomes Occator in a landscape with Kerwan and Ahuna Mons in it.
+//
+// The selection rule is deliberate and is stated here because it is the only
+// editorial judgement in this file: LARGEST FIRST, at most three of any one
+// feature type, twenty per body. Diameter alone is the obvious rule and it is
+// wrong — on Mars it returns twenty continent-sized terrae and planitiae and no
+// volcano at all, because Olympus Mons is 610 km and Terra Cimmeria is 5,856.
+// The type cap is what puts Tharsis Montes on Mars, Ahuna Mons on Ceres and
+// Loki Patera on Io. Nothing is chosen by hand; change the two constants and
+// the whole set changes.
 //
 // WHY THIS EXISTS. data/places.js carries 50 real places with real physical
 // reasons and NO POSITIONS, so a surface map could not put any of them anywhere.
@@ -28,8 +48,23 @@
 // point of doing this with a script at all.
 //
 // LONGITUDE CONVENTION: the gazetteer publishes positive-east in 0–360 for most
-// bodies. This normalises to −180..180 East, which is what the renderer wants
-// and what data/features.js already uses (`lonE`).
+// bodies. This normalises to −180..180 East, which is the convention the PLATES
+// use — every image in public/plates/ is centred on 0° longitude.
+//
+// ⚠ IT IS NOT THE CONVENTION data/features.js USES, and an earlier version of
+// this header said it was. That file stores 0–360 and the survey-era body view
+// in wanderer.jsx projects it as `lonE / 360`, so its pins have always been half
+// a world out — Olympus Mons is drawn at 63% across a plate where it belongs at
+// 13%. Worse, three of its coordinates are WEST longitudes recorded as east
+// (Loki Patera 308.8 should be 51.2°E; Conamara Chaos 274.0 should be 86.5°E),
+// which is the "content written from memory" debt in design.md §11 showing its
+// face. THIS file is generated from the authority and is the one to trust; the
+// surface map reads from here and does not touch features.js.
+//
+// AND IT KEYS ON `target`, NOT on a place's `body` field. `body` in places.js
+// means "nearest charted anchor" rather than "the world this is on" — himalia
+// is filed under callisto, ring-camps under mimas, and Sputnik Planitia under
+// charon when it is unambiguously on Pluto. The gazetteer's target is the fact.
 // ===========================================================================
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -41,6 +76,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const CACHE = join(ROOT, ".cache", "gazetteer");
 const OUT = join(ROOT, "src", "data", "place-coords.js");
+const OUT_LANDMARKS = join(ROOT, "src", "data", "landmarks.js");
 const BASE = "https://asc-planetarynames-data.s3.us-west-2.amazonaws.com";
 
 /**
@@ -95,9 +131,28 @@ const MAPPING = {
   sputnik:           { target: "PLUTO", feature: "Sputnik Planitia" },
 };
 
+/**
+ * The gazetteer's body name to ours. Only MOON differs; the rest lowercase.
+ * Kept explicit so a new target fails loudly rather than guessing.
+ */
+const BODY_ID = {
+  MOON: "luna", MARS: "mars", MERCURY: "mercury", VENUS: "venus",
+  PHOBOS: "phobos", DEIMOS: "deimos", CERES: "ceres", VESTA: "vesta",
+  IO: "io", EUROPA: "europa", GANYMEDE: "ganymede", CALLISTO: "callisto",
+  TITAN: "titan", ENCELADUS: "enceladus", IAPETUS: "iapetus",
+  TRITON: "triton", PLUTO: "pluto",
+};
+
+/** See the header: largest first, at most three of a type, twenty per body. */
+const LANDMARKS_PER_BODY = 20;
+const MAX_PER_TYPE = 3;
+
 // ---------------------------------------------------------------------------
 
 const log = (...a) => console.log(...a);
+
+/** The gazetteer has stray double and trailing spaces in a few clean_names. */
+const tidy = (s) => s.replace(/\s+/g, " ").trim();
 
 /** Fetch a body's KMZ once and keep it — these are tens of megabytes. */
 async function kmlFor(target) {
@@ -174,10 +229,49 @@ async function main() {
     for (const m of missing) log(`    ${m}`);
   }
   log(`\n  ${rows.length} placed, ${missing.length} unmatched.`);
+
+  // ---- the context layer --------------------------------------------------
+  const taken = new Set(rows.map((r) => `${r.target}/${r.name}`));
+  const landmarks = {};
+  log(`\nLandmarks — largest first, max ${MAX_PER_TYPE} per type, ${LANDMARKS_PER_BODY} per body:`);
+  for (const target of targets) {
+    const id = BODY_ID[target];
+    if (!id) { console.error(`  ! ${target}: no body id — add it to BODY_ID.`); continue; }
+    const pool = (byTarget[target] || [])
+      .filter((f) => !taken.has(`${target}/${f.name}`))     // ports draw themselves
+      .sort((a, b) => (b.diameterKm || 0) - (a.diameterKm || 0));
+
+    // Diverse first, then backfill. The type cap alone leaves crater-dominated
+    // worlds threadbare — Callisto IS craters, and capping them at three gave it
+    // ten landmarks out of 154 available. So: take the varied ones, then top up
+    // largest-first from whatever is left, which keeps the cap's effect at the
+    // head of the list where it decides what a glance at the map shows.
+    const seen = {};
+    const diverse = pool.filter((f) => (seen[f.type || "?"] = (seen[f.type || "?"] || 0) + 1) <= MAX_PER_TYPE);
+    const chosen = new Set(diverse.slice(0, LANDMARKS_PER_BODY));
+    for (const f of pool) {
+      if (chosen.size >= LANDMARKS_PER_BODY) break;
+      chosen.add(f);
+    }
+    const picks = pool
+      .filter((f) => chosen.has(f))
+      .map((f) => ({
+        name: tidy(f.name),
+        lat: Math.round(f.lat * 100) / 100,
+        lonE: Math.round(toSignedEast(f.lonE) * 100) / 100,
+        diameterKm: f.diameterKm ? Math.round(f.diameterKm) : null,
+        type: f.type,
+      }));
+    landmarks[id] = picks;
+    log(`  ${id.padEnd(10)} ${String(picks.length).padStart(2)} of ${String((byTarget[target] || []).length).padStart(4)} named features`);
+  }
+
   if (report) return;
 
   writeFileSync(OUT, emit(rows));
   log(`\nWrote ${OUT}`);
+  writeFileSync(OUT_LANDMARKS, emitLandmarks(landmarks, byTarget));
+  log(`Wrote ${OUT_LANDMARKS}`);
 }
 
 function emit(rows) {
@@ -190,10 +284,18 @@ function emit(rows) {
 // surface, from the IAU Gazetteer of Planetary Nomenclature's own bulk export
 // (https://planetarynames.wr.usgs.gov/GIS_Downloads — public domain).
 //
-// \`lat\` is planetocentric latitude; \`lonE\` is EAST longitude in −180..180, the
-// same convention data/features.js uses. \`iauName\` is the IAU's name for the
-// feature, which is often not ours: we name places for what they are FOR, and
-// the gazetteer names them for whoever the IAU was honouring.
+// \`lat\` is planetocentric latitude; \`lonE\` is EAST longitude in −180..180 —
+// the convention the PLATES use, since every image in public/plates/ is centred
+// on 0° longitude. It is NOT the convention data/features.js uses (that file is
+// 0–360, and three of its longitudes are west values recorded as east); read
+// this file, not that one. \`iauName\` is the IAU's name for the feature, which
+// is often not ours: we name places for what they are FOR, and the gazetteer
+// names them for whoever the IAU was honouring.
+//
+// \`target\` is the body the feature is actually ON, and it is the field the
+// surface map keys on. A place's \`body\` in places.js means "nearest charted
+// anchor" and disagrees in a handful of cases — Sputnik Planitia is filed under
+// charon there and is unambiguously on Pluto.
 //
 // PLACES ABSENT FROM THIS FILE HAVE NO SURFACE COORDINATE, and that is a fact
 // about them rather than a gap in the data. Low Earth orbit, the Lagrange
@@ -213,6 +315,58 @@ export const hasSurface = (placeId) => Object.hasOwn(PLACE_COORDS, placeId);
 
 /** The coordinate, or null for orbits, regions and swarms. */
 export const coordsFor = (placeId) => PLACE_COORDS[placeId] || null;
+`;
+}
+
+function emitLandmarks(landmarks, byTarget) {
+  const bodies = Object.keys(landmarks).sort();
+  const total = bodies.reduce((n, b) => n + landmarks[b].length, 0);
+  const counts = Object.entries(byTarget).map(([t, f]) => [t, f.length]);
+  const named = counts.reduce((n, [, c]) => n + c, 0);
+  const fewest = counts.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const most = counts.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const range = `${fewest[1]} on ${BODY_ID[fewest[0]]} to ${most[1].toLocaleString("en-GB")} on ${BODY_ID[most[0]]}`;
+  return `// ===========================================================================
+// LANDMARKS — GENERATED. Do not hand-edit.
+//
+//   node scripts/gen-place-coords.mjs
+//
+// The named geography of each world, so a surface map is a map of somewhere
+// rather than a dot on a photograph. Same source and same licence as
+// place-coords.js: the IAU Gazetteer of Planetary Nomenclature's bulk export
+// (https://planetarynames.wr.usgs.gov/GIS_Downloads — public domain).
+//
+// WHY THIS EXISTS. All but two bodies in the census hold exactly one port, and a
+// map with one pin on it is worse than none. These worlds are not empty, though:
+// the gazetteer lists ${named.toLocaleString("en-GB")} approved features across the ${bodies.length} bodies below — from
+// ${range}. This file is the ${LANDMARKS_PER_BODY} most prominent of them per body.
+//
+// THE SELECTION RULE, which is the only judgement in this data: largest first,
+// at most ${MAX_PER_TYPE} of any one feature type. Diameter alone is the obvious rule and it
+// is wrong — on Mars it returns twenty continent-sized terrae and not one
+// volcano, because Terra Cimmeria is 5,856 km across and Olympus Mons is 610.
+// The type cap is what earns Tharsis Montes its place, and Ahuna Mons on Ceres,
+// and Loki Patera on Io.
+//
+// A port's own feature is excluded here, because the port draws itself.
+//
+// \`lonE\` is EAST longitude in −180..180, matching place-coords.js and the
+// 0°-centred plates in public/plates/. \`diameterKm\` is null where the gazetteer
+// records none, which is normal for linear and albedo features.
+//
+// Generated: ${bodies.length} bodies · ${total} landmarks.
+// ===========================================================================
+
+export const LANDMARKS = {
+${bodies.map((b) => `  ${b}: [\n${landmarks[b].map((f) =>
+    `    { name: ${JSON.stringify(f.name)}, lat: ${f.lat}, lonE: ${f.lonE}, diameterKm: ${f.diameterKm}, type: ${JSON.stringify(f.type)} },`).join("\n")}\n  ],`).join("\n")}
+};
+
+/** The named geography of a body, largest first. Empty array if we have none. */
+export const landmarksFor = (bodyId) => LANDMARKS[bodyId] || [];
+
+/** Every body this file can furnish a map for. */
+export const MAPPED_BODIES = Object.keys(LANDMARKS);
 `;
 }
 

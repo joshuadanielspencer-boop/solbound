@@ -30,6 +30,17 @@
 //     Globes" is 2:1 and is two circular globes on a black field; it would sail
 //     through the aspect check and put every pin somewhere it isn't. A human
 //     has to LOOK at each plate once. That is what `checked` records.
+//
+// ⚠ AND ONE MORE THING NOBODY CHECKED UNTIL 2026-07-28: WHERE THE SEAM IS.
+// Every plate in this manifest is centred on 0° longitude and runs −180° at the
+// left edge to +180° at the right. That is not universal — plenty of published
+// global mosaics put 0° at the left edge and run 0–360 instead, and the two are
+// indistinguishable to any automated check. Getting it backwards displaces every
+// pin by half a world, which is exactly what the survey-era body view in
+// wanderer.jsx has been doing since it was written. Verify a new plate by
+// picking one feature with a known coordinate and confirming it lands on the
+// thing it names. Hellas Planitia (70.5°E, 42.4°S) is a good one for Mars: on a
+// 0-centred plate it is 70% across and 73% down, and it is unmistakable.
 // ===========================================================================
 import { mkdir, stat } from "node:fs/promises";
 import sharp from "sharp";
@@ -61,6 +72,20 @@ const PLATES = {
     note: "Cassini is joint NASA/ESA; THIS file is PD on Commons but that is not "
         + "automatic for Cassini products. Re-check if it is ever replaced.",
   },
+  luna: {
+    file: "CGI Moon Kit - Lroc color poles.tif",
+    source: "NASA Scientific Visualization Studio (Ernie Wright, Noah Petro) — CGI Moon "
+          + "Kit colour map, from the LRO LROC WAC mosaic. https://svs.gsfc.nasa.gov/4720/",
+    licence: "Public domain", checked: "2026-07-28",
+    note: "27360×13680 at full size, centred on 0° longitude like every other plate here. "
+        + "The OTHER PD candidate — USGS's Clementine 750 nm albedo map — is also exactly "
+        + "2:1 and was rejected on sight: it has black unimaged bands at both poles, and "
+        + "Shackleton sits at −89.67°, inside them. A lunar plate with a hole where the "
+        + "polar shadow is would defeat the only reason this body most needs a map. "
+        + "'poles' in the filename is the variant with the poles filled in; take that one. "
+        + "Commons hands back a 3840px PNG rather than the requested 2048 (its TIFF "
+        + "thumbnailer buckets), which the resize below handles.",
+  },
 
   // ---- NOT YET IN THE MANIFEST, and why ----------------------------------
   // titan      — best global mosaic on Commons is "Attribution", not PD. Needs a
@@ -68,10 +93,14 @@ const PLATES = {
   // callisto   — the 2:1 candidate is "Hemispherical Globes": two circles on
   //              black, not a cylindrical map. Would pass the aspect check and
   //              be wrong. Needs the real USGS cylindrical mosaic.
-  // luna, venus, io, ganymede, pluto, charon, triton, miranda
+  // venus, io, ganymede, pluto, charon, triton, miranda
   //            — no verified 2:1 global candidate found yet. Search Commons for
   //              "<body> global mosaic", confirm the projection by LOOKING at
   //              it, confirm the licence on the file page, then add it here.
+  //              Commons' own category listings are a better way in than its
+  //              full-text search, which buries global maps under thousands of
+  //              per-crater frames: Category:Maps_of_the_<body> via the API's
+  //              list=categorymembers is how the lunar plate above was found.
 };
 
 const WIDTH = Number(process.env.PLATE_WIDTH || 2048);

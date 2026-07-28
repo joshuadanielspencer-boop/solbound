@@ -3,7 +3,7 @@
 *Everything is bound to Sol.*
 
 This is the short version: what you are doing, what to press, and the five rules
-that actually bite. It describes the game as it stands at 2026-07-27. When the
+that actually bite. It describes the game as it stands at 2026-07-28. When the
 game changes, change this.
 
 ---
@@ -63,9 +63,30 @@ When you have a few hundred thousand spare, the **Yard** is where it goes.
 | **⚖ Standing** | Who is out here this run, what they make of you, and what it took. |
 | **🗺 Atlas** | The real places you have charted. Earth is known from the start; docking charts a place; arriving with a **survey lab** fitted charts a whole system. |
 
-**The map is a control, not a picture.** Click a planet (or Tab to it and press
-Enter) to go inside its system and see its moons and ports. Click a port to make
-it your destination. `Esc` backs out.
+**The map is a control, not a picture, and it has three depths.** Click a planet
+(or Tab to it and press Enter) to go inside its system and see its moons and
+ports. Click a port to make it your destination. `Esc` backs out one level.
+
+Click a **world** — the planet at the centre, or any moon with a dashed ring
+around it — and you go down one more level, to its surface. That screen shows
+your ports where they actually are, in real latitude and longitude, with the
+twenty largest named features of that world around them and the line between day
+and night drawn across the lot. A solid pin is in sunlight; a hollow one is in
+local night.
+
+The lighting is worth reading rather than looking at. A day on the Moon lasts
+29½ Earth days, so a lunar base spends a fortnight in darkness at a stretch. Mars
+tips 25° on its axis, which is why one of its poles spends part of the year
+without a sunrise at all. **That is what makes a polar site a decision about
+power before it is anything else** — and it is why the ice everyone wants is in
+the one place the Sun never reaches.
+
+Two honest limits, stated on the screen as well as here. The *length* of the day
+and the *swing* of the seasons are real; where the Sun stands on a particular
+calendar date is not, so the map shows how the light moves, never what time it is
+at a named place on a named day. And the model works on a smooth sphere: a crater
+floor in permanent shadow is a fact about the height of its rim, which nothing
+here knows about.
 
 ---
 

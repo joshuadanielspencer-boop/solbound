@@ -383,9 +383,9 @@ across 6 files.
 | **Trajectory rendering** | Ships fly the true transfer ellipse, Kepler-solved. Test pins two invariants a straight-line fake would fail: exactly 180° of longitude swept, and visibly faster near the Sun. |
 | **Simulation core** | World clock, derived event queue, fleet with independent scheduled departures and arrivals, five time rates, skip-to-next-event, auto-pause on arrival. Pure functions, never mutating. |
 | **Propulsion** | Rocket equation, five drives, four eras, feasibility assessment, brachistochrone and spiral models. |
-| **Illumination** | Real solar day lengths, seasons from real axial tilt, terminator, sun angle, polar night. Retrograde rotators handled. Render and gameplay paths tested in agreement. |
+| **Illumination** | Real solar day lengths, seasons from real axial tilt, terminator, sun angle, polar night. Retrograde rotators handled. Render and gameplay paths tested in agreement. **Wired into the trade game 2026-07-28** via the surface map. |
 | **Determinism** | One swappable RNG; `withSeed()` restores even when its body throws. |
-| **Three-level map** | Orrery → system → body, with four real public-domain USGS/NASA plates and a fetch pipeline that checks projection and records licences. |
+| **Three-level map** | Orrery → system → surface, with five real public-domain USGS/NASA plates and a fetch pipeline that checks aspect and records licences. Every body carrying a port opens its own surface: this run's ports at real IAU coordinates, 320 generated landmarks across 17 worlds, and the terminator over both. |
 | **Survey layer** | Clue-driven photographic assignments — see §13. |
 
 ### GAP — the work, in order
@@ -407,7 +407,12 @@ across 6 files.
 
 - **Content is a draft.** The 18 hand-written features carry facts written from
   memory. A visible notice says so in the app. They must be regenerated from
-  primary sources before anyone learns from them.
+  primary sources before anyone learns from them. **Now with a measured example
+  of the cost:** four of `data/features.js`'s fourteen coordinates are WEST
+  longitudes recorded as east — Loki Patera, Conamara Chaos, Damascus Sulcus and
+  Kraken Mare are each drawn on the wrong side of their world. The authoritative
+  values are already generated in `data/place-coords.js`; the file needs
+  regenerating, not patching.
 - **`DELTA_V_FROM_LEO` is invented** — labelled in code as "ordering, not
   quotes". For an economy game the delta-v map *is* the map; it needs real
   sourced edges. **Both external briefs independently flagged this.**
