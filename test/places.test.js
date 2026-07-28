@@ -17,7 +17,9 @@
 // ===========================================================================
 import { describe, it, expect } from "vitest";
 import { PLACE_COORDS, hasSurface, coordsFor } from "../src/data/place-coords.js";
-import { PLACES } from "../src/data/places.js";
+import { PLACES, PLACE_BY_ID } from "../src/data/places.js";
+import { MOONS, BELT_BODIES } from "../src/data/bodies.js";
+import { bodyOf } from "../src/surface.js";
 
 describe("the coordinates are real", () => {
   it("Shackleton is at the lunar south pole, where the ice is", () => {
@@ -95,5 +97,57 @@ describe("what has no coordinate, and why", () => {
   it("coordsFor is null rather than undefined for an unknown id", () => {
     expect(coordsFor("no-such-place")).toBe(null);
     expect(hasSurface("no-such-place")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `body` MEANS THE WORLD IT IS ON OR ORBITS
+//
+// The field drifted into meaning "the nearest charted thing", which read fine in
+// a list and was wrong the moment the system view started drawing moons on real
+// orbits: a settlement was pinned to a world it does not go round. Four entries
+// were wrong; these pin all four by name so the drift cannot come back quietly.
+// ---------------------------------------------------------------------------
+describe("every place names the world it is actually on", () => {
+  const by = (id) => PLACE_BY_ID[id];
+
+  it("puts Sputnik Planitia on Pluto, not on Charon", () => {
+    // The one that is simply a mistake rather than a convention: it is a
+    // nitrogen glacier on Pluto's surface, and it was filed under its moon.
+    expect(by("sputnik").body).toBe("pluto");
+    expect(by("sputnik").kind).toBe("surface");
+  });
+
+  it("puts the three outer anchorages around their primary", () => {
+    // Himalia and Phoebe are moons of Jupiter and Saturn in their own right —
+    // they are absent from MOONS only because we hold no sourced elements for
+    // them. The ring mines are in Saturn's rings. None of the three orbits the
+    // moon they used to be filed under.
+    expect(by("himalia").body).toBe("jupiter");
+    expect(by("phoebe-gate").body).toBe("saturn");
+    expect(by("ring-camps").body).toBe("saturn");
+  });
+
+  it("never names a body outside its own system", () => {
+    // The general guard behind the four specifics: a place's body must be its
+    // system's primary, a charted moon of that system, or a named belt body.
+    const belt = new Set(BELT_BODIES.map((b) => b.id));
+    for (const p of PLACES) {
+      if (!p.body) continue;                       // orbits and regions: fine
+      const charted = new Set((MOONS[p.system] || []).map((m) => m.id));
+      const ok = p.body === p.system || charted.has(p.body) || belt.has(p.body);
+      expect(ok, `${p.id} says body "${p.body}" in system "${p.system}"`).toBe(true);
+    }
+  });
+
+  it("agrees with the gazetteer wherever the gazetteer has an opinion", () => {
+    // place-coords.js knows which world each surface feature is really on,
+    // straight from the IAU. Where both exist they must not disagree — that
+    // disagreement is exactly how the Sputnik error survived.
+    for (const [placeId] of Object.entries(PLACE_COORDS)) {
+      const p = PLACE_BY_ID[placeId];
+      if (!p || p.kind !== "surface") continue;
+      expect(bodyOf(placeId), `${placeId}`).toBe(p.body);
+    }
   });
 });

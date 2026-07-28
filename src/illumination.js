@@ -80,7 +80,10 @@ export function subsolarLat(bodyId, t) {
   // supplement, and the sign flips with it.
   const tilt = r.obliquity > 90 ? -(180 - r.obliquity) : r.obliquity;
   const key = SEASON_KEY[bodyId] || bodyId;
-  const yearDays = periodDays(key === "luna" ? "earth" : key) || 365.25;
+  // A body may carry its own year (data/bodies.js) when the ephemeris does not
+  // hold elements for it — Ceres and Vesta are ports and are not planets, and
+  // falling back to an Earth year would run their seasons four times too fast.
+  const yearDays = r.yearDays || periodDays(key === "luna" ? "earth" : key) || 365.25;
   const phase = ((t / 86400000) / yearDays) * 2 * Math.PI;
   return tilt * Math.sin(phase);
 }

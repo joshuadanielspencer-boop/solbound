@@ -29,6 +29,19 @@
 //                   on, and never quietly present an estimate as a measurement.
 //                   (Shutterbug's journeys.js invented `certainty` for the same
 //                   reason — documented vs. traditional sites.)
+//
+// ⚠ `lonE` IS EAST LONGITUDE, and four of the fourteen entries below stored WEST
+// longitude in it until 2026-07-28 — Loki Patera, Conamara Chaos, Damascus
+// Sulcus and Kraken Mare, every one of them an outer-planet satellite, where the
+// IAU convention IS west. Somebody read the gazetteer correctly and wrote it
+// into the wrong field, and each of those four was drawn on the opposite side of
+// its world. Corrected from the gazetteer's own values.
+//
+// `node scripts/check-feature-coords.mjs` holds this whole file against the IAU
+// Gazetteer of Planetary Nomenclature and exits non-zero on any disagreement.
+// Run it after touching a coordinate. Two entries have no gazetteer counterpart
+// and the script says so rather than failing: Bradbury Landing is a rover
+// landing site, and "Triton's Geysers" is a phenomenon, not a named place.
 // ===========================================================================
 
 export const FEATURES = [
@@ -151,7 +164,7 @@ export const FEATURES = [
   // ---- JUPITER ------------------------------------------------------------
   {
     id: "loki-patera", name: "Loki Patera", body: "io", system: "jupiter",
-    lat: 12.6, lonE: 308.8, category: "volcano", diameterKm: 202,
+    lat: 13.01, lonE: 51.21, category: "volcano", diameterKm: 226.6,
     subject: "The most powerful volcano in the solar system",
     easy: "On Io, the innermost big moon of Jupiter: a lake of molten rock over a hundred miles wide, which brightens and fades on a rhythm we can watch from Earth.",
     medium: "A lava lake on the most volcanic world we know — a moon squeezed and released by its giant planet on every orbit until its insides melt.",
@@ -167,7 +180,7 @@ export const FEATURES = [
   },
   {
     id: "conamara-chaos", name: "Conamara Chaos", body: "europa", system: "jupiter",
-    lat: 9.0, lonE: 274.0, category: "linea", diameterKm: 80,
+    lat: 9.7, lonE: 87.3, category: "linea", diameterKm: 143.7,
     subject: "Ice rafts that floated and refroze",
     easy: "On Europa, an ice-covered moon of Jupiter: a patch where the crust broke into rafts, drifted apart, rotated, and froze back together in new positions.",
     medium: "A jumbled region on a moon of ice. Slabs of the surface have plainly moved — which means something underneath them was liquid enough to move them.",
@@ -185,7 +198,7 @@ export const FEATURES = [
   // ---- SATURN -------------------------------------------------------------
   {
     id: "damascus-sulcus", name: "Damascus Sulcus", body: "enceladus", system: "saturn",
-    lat: -80, lonE: 300, category: "linea", diameterKm: 125,
+    lat: -80.59, lonE: 74.13, category: "linea", diameterKm: 125,
     subject: "A tiger stripe venting water into space",
     easy: "Near the south pole of Enceladus, a small icy moon of Saturn: one of four great cracks that jet water vapour and ice grains hundreds of miles into space.",
     medium: "One of four parallel gashes across the south pole of a moon barely 300 miles wide. They are warm — the only warm ground on an otherwise deep-frozen world.",
@@ -201,7 +214,7 @@ export const FEATURES = [
   },
   {
     id: "kraken-mare", name: "Kraken Mare", body: "titan", system: "saturn",
-    lat: 68, lonE: 310, category: "mare", diameterKm: 1170,
+    lat: 68, lonE: 50, category: "mare", diameterKm: 1170,
     subject: "The largest sea of liquid methane",
     easy: "In the far north of Titan, Saturn's biggest moon: a sea of liquid methane and ethane, the largest body of standing liquid anywhere except Earth.",
     medium: "A sea near the north pole of a moon with thick orange air. It is not water — at 290 degrees below zero, water there is bedrock, and what flows is natural gas.",

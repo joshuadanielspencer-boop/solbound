@@ -241,6 +241,42 @@ export const ROTATION = {
   neptune: { solarDayH: 16.11,  obliquity: 28.32 },
   pluto:   { solarDayH: 153.29, obliquity: 122.53 },
 
+  // ---- The two Belt bodies that are ports ---------------------------------
+  //
+  // Added 2026-07-28, because the surface map drew Ceres and Vesta flat-lit with
+  // no terminator and had to say so on screen: they are the only worlds in the
+  // census with a port on them and no rotation model.
+  //
+  // SOURCED, then DERIVED, and it is worth being precise about which is which.
+  //
+  //   From JPL's Small-Body Database (ssd-api.jpl.nasa.gov/sbdb.api), quoted:
+  //     Ceres  sidereal rotation 9.0741700 h · pole RA/Dec 291.421° / 66.758°
+  //            · i 10.60° · Ω 80.20° · period 1680 d
+  //            [Nature vol. 537, pp515-517, 22 September 2016 — Dawn]
+  //     Vesta  sidereal rotation 5.3421276 h · pole RA/Dec 309.0611° / 42.232386°
+  //            · i 7.14° · Ω 104.00° · period 1330 d
+  //            [Park, R.S. et al. 2025, Nat Astron, 10.1038/s41550-025-02533-7]
+  //
+  //   DERIVED from those, because neither field is published directly in the
+  //   form this table wants:
+  //     obliquity  = the angle between the spin axis and the orbit normal. The
+  //                  pole is given in equatorial J2000, so it is rotated into
+  //                  the ecliptic by ε = 23.43929111° and dotted with the orbit
+  //                  normal (sin i·sin Ω, −sin i·cos Ω, cos i).
+  //     solarDayH  = 1 / (1/T_sidereal − 1/T_year), the same correction the
+  //                  planets above carry. It is tiny out here — Ceres gains two
+  //                  seconds on its 9-hour day — but it is the right arithmetic
+  //                  and the test re-does it.
+  //
+  // The derived numbers land on the published approximations (Ceres ~4°, Vesta
+  // ~27°), which is the cross-check that the rotation is being done correctly.
+  // test/bodies.test.js re-derives both from the quoted inputs.
+  // `yearDays` because ephemeris.js holds Keplerian elements for the nine
+  // planets and nothing else, and a season needs a year. Quoted from the same
+  // JPL records as everything above.
+  ceres:   { solarDayH: 9.076213, obliquity: 4.048, yearDays: 1680 },
+  vesta:   { solarDayH: 5.343022, obliquity: 27.469, yearDays: 1330 },
+
   // Tidally locked moons: solar day = orbital period, from MOONS above.
   luna:      { solarDayH: 29.5306 * 24, obliquity: 23.44, locked: true }, // synodic month
   phobos:    { solarDayH: 0.31891 * 24, obliquity: 25.19, locked: true },

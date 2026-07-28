@@ -204,8 +204,19 @@ export function elongation(keyA, keyB, date) {
   return d > 180 ? 360 - d : d;
 }
 
-/** Sidereal period in days, from the current semi-major axis. Kepler's third law. */
+/**
+ * Sidereal period in days, from the current semi-major axis. Kepler's third law.
+ *
+ * Returns null for a body this table does not carry, rather than throwing. It
+ * used to throw, and on 2026-07-28 that took down the whole surface map the
+ * moment Ceres was given a rotation model: illumination.js asks for the year of
+ * whatever body it is lighting, ELEMENTS holds the nine planets and nothing
+ * else, and a render-time exception is a blank screen rather than a wrong
+ * number. Callers already have `|| 365.25`-style fallbacks; they simply never
+ * got the chance to use them.
+ */
 export function periodDays(key, date = new Date(2000, 0, 1)) {
+  if (!ELEMENTS[key]) return null;
   const T = centuriesSinceJ2000(date);
   const a = ELEMENTS[key].a[0] + ELEMENTS[key].a[1] * T;
   return 365.256898326 * Math.pow(a, 1.5);

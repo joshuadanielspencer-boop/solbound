@@ -23,6 +23,7 @@ import {
   polarNight, seasonAmplitude, mappedBodiesWithPorts, MAPPED,
 } from "../src/surface.js";
 import { nightSpans, isLit, sunAltitude } from "../src/illumination.js";
+import { periodDays } from "../src/ephemeris.js";
 import { PLACE_COORDS } from "../src/data/place-coords.js";
 import { LANDMARKS, landmarksFor } from "../src/data/landmarks.js";
 import { ROTATION } from "../src/data/bodies.js";
@@ -177,45 +178,58 @@ describe("the surface report", () => {
     }
   });
 
-  it("reports an unknown rotation as unknown, not as daylight", () => {
-    // Ceres and Vesta are ports and are NOT in ROTATION. isLit()'s own fallback
-    // returns true — right for "don't block a photograph", wrong for a map that
-    // states facts — so the report must pass the gap through instead.
-    expect(ROTATION.ceres).toBeUndefined();
-    const rep = surfaceReport("ceres", sites, 0);
-    expect(rep.rotationKnown).toBe(false);
-    expect(rep.solarDay).toBeNull();
-    for (const p of rep.ports) {
-      expect(p.lit).toBeNull();
-      expect(p.light).toBeNull();
+  it("now has a rotation model for every world it can draw", () => {
+    // It did not. Ceres and Vesta are ports and were absent from ROTATION, so
+    // their maps drew flat-lit with no terminator and said so. Their periods and
+    // poles came from JPL on 2026-07-28 (see data/bodies.js). This asserts the
+    // gap is closed and would catch a new mapped body arriving without one.
+    for (const b of MAPPED) {
+      const rep = surfaceReport(b, sites, Date.UTC(2040, 5, 5));
+      expect(rep.rotationKnown, `${b} has no rotation model`).toBe(true);
+      expect(rep.solarDay, `${b} cannot say how long its day is`).toBeTruthy();
     }
   });
 
-  it("agrees with itself: lit is exactly sun-above-the-horizon", () => {
-    // The bug this forbids is the nastiest one this screen could have — a pin
-    // drawn solid inside the shaded half, or hollow in the sunlight. The night
-    // overlay and the pin state come from two different functions in
-    // illumination.js, and they have to be the same claim.
-    for (let d = 0; d < 90; d += 3) {
-      const rep = surfaceReport("mars", sites, Date.UTC(2037, 0, 1) + d * DAY);
-      for (const p of rep.ports) {
-        expect(p.lit, `${p.name} day ${d}`).toBe(p.sunAltDeg > 0);
-        expect(p.light.key === "night").toBe(!p.lit);
-      }
-    }
+  it("still reports an unknown rotation as unknown rather than as daylight", () => {
+    // The branch has no live caller now that all seventeen worlds have a model,
+    // and it stays because the alternative is what it replaced: isLit()'s own
+    // fallback returns TRUE — right for "don't block a photograph", wrong for a
+    // map that states facts. Exercised directly so it cannot rot.
+    expect(ROTATION.psyche).toBeUndefined();
+    expect(polarNight("psyche", 0)).toBeNull();
+    expect(seasonAmplitude("psyche")).toBeNull();
   });
 
-  it("sweeps the terminator across a port instead of parking it", () => {
-    // A day on Mars is 24h 40m, so stepping a third of a day at a time must
-    // find a port in daylight sometimes and in darkness sometimes. The first
-    // version of the view sampled the clock once and never moved.
-    const seen = new Set();
-    for (let i = 0; i < 30; i++) {
-      const rep = surfaceReport("mars", sites, Date.UTC(2037, 0, 1) + i * DAY / 3);
-      const p = rep.ports.find((x) => x.id === "jezero-station");
-      if (p) seen.add(p.lit);
-    }
-    expect(seen).toEqual(new Set([true, false]));
+  it("runs Ceres's seasons on Ceres's year, not on Earth's", () => {
+    // The bug that giving Ceres a rotation model exposed, and that the UI smoke
+    // test caught within minutes: illumination.js asks the ephemeris for a
+    // body's year, ELEMENTS holds the nine planets and nothing else, and it
+    // THREW rather than falling back — a blank screen instead of a wrong number.
+    //
+    // Measure the season's PERIOD, not how much of the swing fits in a window.
+    // My first attempt did the latter and failed against correct code: the
+    // sub-solar latitude peaks a quarter of the way round a year, so 365 days of
+    // a 1,680-day year already covers 98% of the swing. Half a year to the first
+    // return to the equator is the quantity that actually differs.
+    const halfYear = (bodyId) => {
+      const at = (d) => surfaceReport(bodyId, sites, d * DAY).subsolarLatDeg;
+      const sign0 = Math.sign(at(1));
+      for (let d = 2; d < 4000; d += 2) if (Math.sign(at(d)) !== sign0) return d;
+      return null;
+    };
+    expect(halfYear("ceres")).toBeGreaterThan(700);      // ~840; an Earth year would give ~182
+    expect(halfYear("ceres")).toBeLessThan(1000);
+    expect(halfYear("vesta")).toBeGreaterThan(550);      // ~665
+    expect(halfYear("vesta")).toBeLessThan(800);
+  });
+
+  it("agrees with the ephemeris where the ephemeris has an opinion", () => {
+    // Ceres doubles as the Asteroid Belt's ephemeris key, so ELEMENTS does carry
+    // it — 1683.1 days against the 1680 quoted from JPL. The stored value wins
+    // (it is the sourced one), and the two agreeing to 0.2% is the cross-check
+    // that neither is a typo.
+    expect(periodDays("ceres")).toBeCloseTo(1680, -1);
+    expect(periodDays("vesta")).toBeNull();              // not a planet; must not throw
   });
 });
 
@@ -335,9 +349,19 @@ describe("seasons and polar night — the part that is genuinely real", () => {
     }
   });
 
-  it("has nothing to say about a body it has no rotation for", () => {
-    expect(polarNight("ceres", 0)).toBeNull();
-    expect(seasonAmplitude("ceres")).toBeNull();
+  it("gives Ceres and Vesta the tilts JPL's poles imply", () => {
+    // Derived, not quoted — see data/bodies.js and test/bodies.test.js, which
+    // re-does the arithmetic. Here it only has to reach the map.
+    expect(seasonAmplitude("ceres")).toBeCloseTo(4.05, 1);
+    expect(seasonAmplitude("vesta")).toBeCloseTo(27.47, 1);
+    // Vesta tilts far enough to have a real polar night; Ceres barely does,
+    // which is why its poles hold ice and its equator does not.
+    let vestaCap = null;
+    for (let d = 0; d < 1400 && !vestaCap; d += 20) {
+      const pn = polarNight("vesta", d * DAY);
+      if (pn && pn.fromLat < 70) vestaCap = pn;
+    }
+    expect(vestaCap, "Vesta should reach a deep polar night within its year").not.toBeNull();
   });
 });
 

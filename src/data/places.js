@@ -19,6 +19,22 @@
 // `shelter`    natural radiation/thermal shielding (caves, magnetism, depth)
 // `occupiable` false = an atlas entry only: a feature you learn, not a port
 //
+// `body`       THE WORLD THIS PLACE IS ON, OR ORBITS. Not "the nearest charted
+//              thing", which is what it quietly drifted into meaning and what
+//              made four entries wrong until 2026-07-28:
+//                • sputnik was filed under `charon`. Sputnik Planitia is on
+//                  PLUTO, and no reading of the field makes that right.
+//                • himalia under `callisto`, phoebe-gate under `iapetus`,
+//                  ring-camps under `mimas` — all three orbit the PRIMARY, not
+//                  a moon. Himalia and Phoebe are moons of Jupiter and Saturn in
+//                  their own right; they are simply not in MOONS, because we
+//                  have no sourced elements for them.
+//              Nothing looked broken until the system view started drawing moons
+//              as orbits and pinned a settlement to a world it does not go
+//              round. If a place orbits a body we do not chart, name the primary
+//              — that is true, and the map draws it ringing the primary, which
+//              is where it is. test/places.test.js pins all four.
+//
 // ⚠ VERIFICATION LEDGER (project rule 2). Facts marked ✦ were checked against
 // the sources listed in docs/site-atlas.md during writing. Everything else is
 // standard textbook material written from general knowledge and MUST be
@@ -238,7 +254,7 @@ export const PLACES = [
     fits: ["extraction", "prison"],
   },
   {
-    id: "himalia", name: "Himalia anchorage", system: "jupiter", body: "callisto", kind: "orbital",
+    id: "himalia", name: "Himalia anchorage", system: "jupiter", body: "jupiter", kind: "orbital",
     why: "A captured moon orbiting far outside the radiation belt and far outside anyone's attention — the quiet outer anchorage of the Jupiter system, where things wait unobserved.",
     resources: ["regolith", "ice"], habitability: "harsh", light: 0.037, shelter: false,
     fits: ["freeport", "depot", "salvage"],
@@ -264,7 +280,7 @@ export const PLACES = [
     fits: ["depot", "research", "monastery"],
   },
   {
-    id: "ring-camps", name: "The ring mines", system: "saturn", body: "mimas", kind: "orbital",
+    id: "ring-camps", name: "The ring mines", system: "saturn", body: "saturn", kind: "orbital",
     why: "Saturn's rings are nearly pure water ice in staggering quantity, already broken into convenient pieces. Mining without the mining.",
     resources: ["ice", "propellant"], habitability: "harsh", light: 0.011, shelter: false,
     fits: ["extraction", "depot"],
@@ -276,7 +292,7 @@ export const PLACES = [
     fits: ["observatory", "relay", "monastery", "depot"],
   },
   {
-    id: "phoebe-gate", name: "Phoebe", system: "saturn", body: "iapetus", kind: "orbital",
+    id: "phoebe-gate", name: "Phoebe", system: "saturn", body: "saturn", kind: "orbital",
     why: "Retrograde and captured — a piece of the Kuiper belt that wandered in and stayed, orbiting far outside everything else at Saturn. The system's unwatched back door.",
     resources: ["ice", "regolith", "volatiles"], habitability: "harsh", light: 0.011, shelter: false,
     fits: ["freeport", "salvage", "depot"],
@@ -290,7 +306,7 @@ export const PLACES = [
     fits: ["research", "depot", "colony"],
   },
   {
-    id: "sputnik", name: "Sputnik Planitia, Pluto", system: "pluto", body: "charon", kind: "surface",
+    id: "sputnik", name: "Sputnik Planitia, Pluto", system: "pluto", body: "pluto", kind: "surface",
     why: "A glacier of frozen nitrogen the size of Texas, slowly churning — on a world where nitrogen ice does what water ice does on Earth. Charon hangs fixed in the sky, the two locked face to face forever. The far shore of the map.",
     resources: ["volatiles", "ice"], habitability: "harsh", light: 0.0006, shelter: false,
     fits: ["research", "relay", "hermitage"],
