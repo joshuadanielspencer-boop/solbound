@@ -13,34 +13,22 @@ import { project, orbitPath, sayLightTime, trueScaleFacts } from "../orrery.js";
 import { transferPosition } from "../transfer.js";
 import { SYSTEMS, SYSTEM_BY_ID, MOONS, BELT_BODIES } from "../data/bodies.js";
 import { siteOf } from "../data/sites.js";
-import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
-import { listing } from "../market.js";
-import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree, netWorth } from "../player.js";
-import { factionAt } from "../factions.js";
+import { COMMODITY_BY_ID } from "../data/commodities.js";
+import { cargoUsed, cargoCapacity, netWorth } from "../player.js";
 import { FACTION_BY_ID } from "../data/factions.js";
-import { reputationTrack, repAt, repLedger, REP_MIN, REP_MAX } from "../reputation.js";
-import { runPlan, cargoValueAt } from "../intel.js";
-import { atlasFor, atlasProgress } from "../atlas.js";
-import { systemInfo, generateNews } from "../worldinfo.js";
-import { fittedStats, MODULE_BY_ID, HULL_BY_ID, ESCAPE_POD, SLOT_KINDS, slotUsage } from "../data/hulls.js";
-import { techOf, TECH_LEVELS } from "../data/sites.js";
-import { shipsForSale, modulesForSale, tradeInValue, repairCost, drivesForSale, driveTradeIn } from "../shipyard.js";
 import { buyShip, fitModule, removeModule, repairHull, buyEscapePod, buyDrive } from "../shipyard.js";
-import { DRIVES, tankAfter } from "../propulsion.js";
-import { CRYO_FACTOR } from "../tradergame.js";
+import { DRIVES } from "../propulsion.js";
 import { createMusic, contextOf, loadAudioPref } from "../audio.js";
 import { starfield, galacticBand, skySeed, beltScatter } from "../starfield.js";
-import { crewForHire, hireCrew, dismissCrew, effectiveSkills, dailyWages, berthsFree } from "../crew.js";
-import { CREW_BY_ID, berthsFor } from "../data/crew.js";
-import { SKILLS } from "../data/captain.js";
-import { FaceOff, HullArt } from "./ships.jsx";
+import { hireCrew, dismissCrew } from "../crew.js";
+import { FaceOff } from "./ships.jsx";
+import Panel from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
-import { encounterView, resolveEncounter, dismissEncounter, controlledCargo, illegalCargo } from "../encounters.js";
+import { encounterView, resolveEncounter, dismissEncounter } from "../encounters.js";
 import { RECORD_BY_ID } from "../data/encounters.js";
-import { govOf } from "../data/sites.js";
 import {
-  travelCost, destinations, launch, advanceTime, shipPosition, refuel, fuelPrice,
-  buy, sell, tankMax, RATES, dailyCost, tripCost, paperPrice, buyPaper,
+  launch, advanceTime, shipPosition, refuel, fuelPrice,
+  buy, sell, tankMax, RATES, dailyCost, buyPaper,
   wait, rangeReport,
 } from "../tradergame.js";
 
@@ -243,6 +231,15 @@ export default function Play({ game, setGame, onQuit }) {
   };
   const doPayOff = (id) => { const r = dismissCrew(game, id); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(`${r.dismissed.name} paid off.`); };
 
+  // Everything the panel screens can do, in one bundle. The screens live in
+  // panels.jsx and hold no game state of their own — they read the game and
+  // call these, which keeps every mutation in one file with the clock.
+  const actions = {
+    buy: doBuy, sell: doSell, refuel: doRefuel, wait: doWait, buyPaper: doBuyPaper,
+    buyShip: doBuyShip, fit: doFit, remove: doRemove, repair: doRepair, buyPod: doBuyPod,
+    hire: doHire, dismiss: doPayOff, buyDrive: doBuyDrive, launch: doLaunch,
+  };
+
   // Download the current game as a file — survives a cleared cache and moves
   // between machines, the same escape hatch Shutterbug's passport has. The
   // filename carries the captain and date so a folder of saves is legible.
@@ -292,11 +289,7 @@ export default function Play({ game, setGame, onQuit }) {
                 <button style={{ ...S.tab, ...(mode === "standing" ? S.tabOn : null) }} onClick={() => setMode("standing")}>⚖ Standing</button>
                 <button style={{ ...S.tab, ...(mode === "atlas" ? S.tabOn : null) }} onClick={() => setMode("atlas")}>🗺 Atlas</button>
               </div>
-              {mode === "dock" ? <Dock game={game} sel={sel} setSel={setSel} onBuy={doBuy} onSell={doSell} onRefuel={doRefuel} onBuyPaper={doBuyPaper} onWait={doWait} />
-                : mode === "yard" ? <Yard game={game} onBuyShip={doBuyShip} onFit={doFit} onRemove={doRemove} onRepair={doRepair} onBuyPod={doBuyPod} onHire={doHire} onDismiss={doPayOff} onBuyDrive={doBuyDrive} />
-                  : mode === "standing" ? <StandingPanel game={game} />
-                    : mode === "atlas" ? <AtlasPanel game={game} />
-                      : <Travel game={game} dest={dest} setDest={setDest} onGo={doLaunch} />}
+              <Panel game={game} mode={mode} dest={dest} setDest={setDest} actions={actions} />
             </>
           )}
         </aside>
@@ -583,134 +576,6 @@ function GameOver({ game, onQuit }) {
 // ---------------------------------------------------------------------------
 // Dock
 // ---------------------------------------------------------------------------
-function Dock({ game, sel, setSel, onBuy, onSell, onRefuel, onBuyPaper, onWait }) {
-  const p = game.player;
-  const site = siteOf(game, p.at);
-  const market = game.markets[p.at];
-  // THE DEFAULT VIEW IS WHAT YOU CAN DO HERE. The goods a port has no market
-  // for teach something real (design.md §5), but they were the first six rows a
-  // player met and they made the shelves look like a wall of "no". They are
-  // behind a toggle now — present for the curious, absent from the decision.
-  const [showDead, setShowDead] = useState(false);
-  // One listing call, memoised: the clock now re-renders this panel ten times a
-  // second in port, and pricing every commodity twice per frame is waste.
-  const all = useMemo(() => listing(market, site, { includeUntraded: true }), [market, site]);
-  const deadCount = all.length - all.filter((r) => r.traded).length;
-  const rows = showDead ? all : all.filter((r) => r.traded);
-  const fp = fuelPrice(game);
-  const tank = tankMax(p), tankFreeT = tank - p.ship.fuelTonnes;
-  const control = factionAt(game.factions, site.id);
-  const rep = repAt(game, site.id);
-
-  return (
-    <div style={{ overflowY: "auto" }}>
-      <div style={S.siteName}>{site.name}</div>
-      <SystemInfoBlock game={game} siteId={p.at} />
-
-      {/* WHAT AM I MEANT TO BE DOING. One sentence, and it changes with the
-          state you are actually in — an empty hold at your home port is a
-          different problem from a full hold and no fuel. */}
-      <NextStep game={game} />
-
-      <div style={S.fuelBox}>
-        <div style={S.fuelHead}>
-          <span><b>Propellant</b> {fp ? `· ${money(fp)}/t here` : "· not sold here"}</span>
-          <span style={S.small}>{p.ship.fuelTonnes.toFixed(0)} / {tank.toFixed(0)} t</span>
-        </div>
-        {fp && tankFreeT > 0.5 && (
-          <div style={S.row}>
-            <button style={S.smallBtn} onClick={() => onRefuel(10)}>+10 t</button>
-            <button style={S.smallBtn} onClick={() => onRefuel(tankFreeT)}>Fill ({money(fp * tankFreeT)})</button>
-          </div>
-        )}
-        <BoilOffLine game={game} />
-        <RangeLine game={game} />
-      </div>
-
-      <div style={S.marketHead}>Market</div>
-      <div style={{ padding: "0 12px 16px" }}>
-        {rows.map((r, i) => {
-          const held = p.cargo[r.id] || 0;
-          const paid = Math.round(p.costBasis?.[r.id] || 0);
-          // A good this port has no market for still gets a row. It cannot be
-          // bought or sold here, and saying so is the lesson: what a place
-          // can't get is why anyone flies to it. They sit BELOW the shelves,
-          // under their own heading, so the lesson doesn't bury the market.
-          if (!r.traded) {
-            return (
-              <div key={r.id}>
-                {rows[i - 1]?.traded !== false && <div style={S.deadHead}>No market here for</div>}
-                <div style={S.mrowDead} title={r.why}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                    <span>{r.name}{held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
-                    <span style={S.tierTag}>{TIERS[r.tier].name}</span>
-                  </div>
-                  <span style={S.notSold}>not traded here</span>
-                </div>
-              </div>
-            );
-          }
-          const bp = buyPrice(p, market, site, r.id), sp = sellPrice(p, market, site, r.id);
-          const on = sel === r.id;
-          return (
-            <div key={r.id}>
-              <button style={{ ...S.mrow, ...(on ? S.mrowOn : null) }} onClick={() => setSel(on ? null : r.id)}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <span>{r.produces ? "◆ " : r.consumes ? "○ " : ""}{r.name}
-                    {/* Space Trader bolded illegal goods in its price list. Same
-                        job here: you must be able to see the risk in the row. */}
-                    {r.banned && <span style={S.bannedTag}>⚠ illegal here</span>}
-                    {r.contraband && !r.banned && <span style={S.legalTag}>legal here</span>}
-                    {held > 0 && <span style={S.held}> · {held} t aboard</span>}</span>
-                  <span style={S.tierTag}>
-                    {TIERS[r.tier].name} · {r.state}
-                    {held > 0 && paid > 0 && ` · paid ${money(paid)}`}
-                  </span>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={S.buyP}>buy {money(bp)}</div>
-                  <div style={{ ...S.sellP, color: held > 0 && paid > 0 ? (sp >= paid ? "#3E9B6E" : "var(--hot)") : "var(--muted)" }}>
-                    sell {money(sp)}{held > 0 && paid > 0 && ` (${sp >= paid ? "+" : "−"}${money(Math.abs(sp - paid))})`}
-                  </div>
-                </div>
-              </button>
-              {on && <TradeBar row={r} held={held} bp={bp} sp={sp} paid={paid} free={cargoFree(p)} credits={p.credits} onBuy={onBuy} onSell={onSell} />}
-            </div>
-          );
-        })}
-        {deadCount > 0 && (
-          <button style={S.deadToggle} onClick={() => setShowDead((v) => !v)} aria-expanded={showDead}>
-            {showDead
-              ? "▾ Hide what this port has no market for"
-              : `▸ ${deadCount} more this port has no market for`}
-          </button>
-        )}
-      </div>
-
-      {/* EVERYTHING BELOW IS CONTEXT, NOT A DECISION. It sits under the market
-          because the market is the reason you opened this screen. */}
-      <WaitBox game={game} onWait={onWait} />
-      <Newspaper game={game} onBuyPaper={onBuyPaper} />
-
-      <Fold title={`About ${site.name}`}>
-        <div style={{ ...S.small, padding: "0 6px" }}>{site.why}</div>
-        {control && rep && (
-          <div style={{ ...S.faction, margin: "10px 0 0" }}>
-            <div>
-              <b>{control.faction.name}</b> holds this port.
-              {/* Standing where it would change a decision, not only on its own
-                  screen — this is whose hall you are standing in right now. */}
-              <span style={{ ...S.repChip, color: rep.tier.tone, borderColor: rep.tier.tone }}>
-                {rep.tier.name} {rep.standing > 0 ? "+" : ""}{rep.standing}
-              </span>
-            </div>
-            <div style={{ marginTop: 4 }}>{control.faction.blurb}</div>
-          </div>
-        )}
-      </Fold>
-    </div>
-  );
-}
 
 /** A collapsed section. Prose is worth having and worth being able to put away. */
 function Fold({ title, children, open: initial = false }) {
@@ -762,22 +627,6 @@ function NextStep({ game }) {
  * actually boils — a methalox ship should never see this line, because methane
  * keeps, and that is the point of methane.
  */
-function BoilOffLine({ game }) {
-  const p = game.player;
-  const drive = DRIVES[p.ship.drive] || DRIVES.methalox;
-  if (!drive.boilOffPerDay) return null;
-  const stats = fittedStats(p.ship.hull, p.ship.modules);
-  const insulation = stats?.cryo ? CRYO_FACTOR : 1;
-  const perMonth = p.ship.fuelTonnes - tankAfter(p.ship.fuelTonnes, drive, 30, insulation);
-  if (perMonth < 0.01) return null;
-  return (
-    <div style={{ ...S.small, marginTop: 8, color: "var(--gold)" }}>
-      ❄ Boiling off about <b>{perMonth.toFixed(1)} t a month</b> — {drive.name.toLowerCase()} runs on
-      hydrogen{stats?.cryo ? ", even with the cryocooler running" : ", and nothing aboard is chilling it"}.
-      It goes on wherever you are.
-    </div>
-  );
-}
 
 /**
  * HOW FAR THIS SHIP CAN GO, in one line, where the player is deciding how much
@@ -785,18 +634,6 @@ function BoilOffLine({ game }) {
  * refuelling decision; the fact that both numbers FALL as the hold fills is the
  * rocket equation, stated without an equation.
  */
-function RangeLine({ game }) {
-  const r = rangeReport(game);
-  if (!r.total) return null;
-  return (
-    <div style={{ ...S.small, marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 7 }}>
-      <b style={{ color: r.now ? "var(--text)" : "var(--hot)" }}>{r.now} of {r.total} ports</b> in reach
-      on the propellant aboard{r.full > r.now && <> · <b>{r.full}</b> with the tank full</>}
-      {r.farthest && <> · farthest is {r.farthest.name}, {fmtDur(r.farthest.days)} out</>}.
-      {" "}A fuller hold reaches fewer — mass is what the equation charges for.
-    </div>
-  );
-}
 
 /**
  * WAITING. wait() sat in the sim for weeks with no way to ask for it, because
@@ -804,144 +641,17 @@ function RangeLine({ game }) {
  * charges you, so "sit here three weeks for the shortage to bite" is a position
  * you take — and the box quotes the bill before you take it.
  */
-function WaitBox({ game, onWait }) {
-  const perDay = dailyCost(game);
-  const OPTIONS = [7, 30, 90];
-  return (
-    <div style={S.fuelBox}>
-      <div style={S.fuelHead}>
-        <span><b>Wait here</b></span>
-        <span style={S.small}>{perDay > 0 ? `${money(perDay)}/day in wages` : "costs you nothing but the date"}</span>
-      </div>
-      <div style={S.row}>
-        {OPTIONS.map((d) => (
-          <button key={d} style={S.smallBtn} onClick={() => onWait(d)}
-            title={`Wait ${d} days here${perDay > 0 ? ` — ${money(perDay * d)} in wages` : ""}`}>
-            +{d} days{perDay > 0 && ` (${money(perDay * d)})`}
-          </button>
-        ))}
-      </div>
-      <div style={{ ...S.small, marginTop: 7 }}>
-        Prices drift back toward what a place structurally pays. Waiting sells a glut
-        down and lets a shortage bite — against a wage bill and a calendar that does
-        not come back.
-      </div>
-    </div>
-  );
-}
 
-function TradeBar({ row, held, bp, sp, paid, free, credits, onBuy, onSell }) {
-  const maxBuy = Math.max(0, Math.min(Math.floor(free), Math.floor(credits / bp), Math.floor(row.stock)));
-  const [qty, setQty] = useState(1);
-  const q = Math.min(qty, Math.max(maxBuy, held, 1));
-  const sellQ = Math.min(q, held);
-  return (
-    <div style={S.tradeBar}>
-      <div style={S.small}>{row.note}</div>
-      {held > 0 && paid > 0 && (
-        <div style={{ ...S.small, marginTop: 6, color: sp >= paid ? "#3E9B6E" : "var(--hot)" }}>
-          You paid {money(paid)}/t. Selling {sellQ} t now = {sp >= paid ? "profit" : "loss"} {money(Math.abs((sp - paid) * sellQ))}.
-        </div>
-      )}
-      <div style={{ ...S.row, marginTop: 8, justifyContent: "space-between" }}>
-        <div style={S.row}>
-          <button style={S.stepBtn} onClick={() => setQty((v) => Math.max(1, v - 1))}>−</button>
-          <span style={S.qty}>{q} t</span>
-          <button style={S.stepBtn} onClick={() => setQty((v) => v + 1)}>+</button>
-          <button style={S.stepBtn} onClick={() => setQty(Math.max(1, maxBuy))} title="As many as you can afford and hold">max</button>
-        </div>
-        <div style={S.row}>
-          <button style={{ ...S.buyBtn, opacity: maxBuy > 0 ? 1 : 0.4 }} disabled={maxBuy <= 0} onClick={() => onBuy(row.id, q)}>Buy</button>
-          <button style={{ ...S.sellBtn, opacity: held > 0 ? 1 : 0.4 }} disabled={held <= 0} onClick={() => onSell(row.id, Math.min(q, held))}>Sell</button>
-        </div>
-      </div>
-      {row.lesson && <div style={S.lesson}>{row.lesson}</div>}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Course plotter
 // ---------------------------------------------------------------------------
-function Travel({ game, dest, setDest, onGo }) {
-  const list = destinations(game).sort((a, b) => (a.cost?.days ?? 1e9) - (b.cost?.days ?? 1e9));
-  return (
-    <div style={{ overflowY: "auto" }}>
-      <div style={S.siteName}>Where to?</div>
-      <div style={S.why}>Cost is propellant and months. A heavier hold burns more; the outer system needs a bigger tank or a better drive. Once you launch, run the clock to fly there.</div>
-      {list.map(({ site, cost }) => {
-        if (!cost) return null;
-        const on = dest === site.id, ok = cost.reachable && cost.enoughFuel;
-        const control = factionAt(game.factions, site.id);
-        const rep = repAt(game, site.id);
-        return (
-          <div key={site.id} style={{ ...S.destCard, ...(on ? S.destOn : null), opacity: cost.reachable ? 1 : 0.55 }}
-            onMouseEnter={() => setDest(site.id)}>
-            <button style={S.destBtn} onClick={() => setDest(on ? null : site.id)}>
-              <div style={S.row2}><b>{site.name}</b><span style={S.destSys}>{SYSTEM_BY_ID[site.system]?.name}</span></div>
-              <div style={S.destMeta}>
-                {cost.fuelTonnes.toFixed(0)} t fuel · {fmtDur(cost.days)}
-                {/* Space Trader's "current costs" — what the CLOCK will charge
-                    you for this crossing, quoted before you commit to it. */}
-                {dailyCost(game) > 0 && <span> · {money(tripCost(game, cost.days))} in wages</span>}
-                {!cost.reachable && <span style={S.tooFar}> · out of range</span>}
-                {cost.reachable && !cost.enoughFuel && <span style={S.tooFar}> · refuel first</span>}
-                {control && <span style={S.destFaction}> · {control.faction.name}</span>}
-                {/* Who runs it AND how you stand with them — the port you are
-                    least welcome at is worth knowing before you burn for it. */}
-                {rep && <span style={{ color: rep.tier.tone }}> ({rep.tier.name.toLowerCase()})</span>}
-              </div>
-            </button>
-            {on && (
-              <div style={S.destOpen}>
-                <div style={S.small}>{site.why}</div>
-                <CustomsWarning game={game} site={site} />
-                <MarketIntel game={game} toId={site.id}
-                  shippingPerTonne={cost.fuelTonnes && cargoUsed(game.player) ? (cost.fuelTonnes * (fuelPrice(game) || 1200)) / Math.max(1, cargoUsed(game.player)) : 0} />
-                {cost.reachable
-                  ? <button style={{ ...S.goBtn, opacity: ok ? 1 : 0.5 }} disabled={!ok} onClick={() => onGo(site.id)}>
-                      {ok ? `Launch — burn ${cost.fuelTonnes.toFixed(1)} t` : "Not enough fuel aboard"}
-                    </button>
-                  : <div style={S.warnLine}>{cost.reason}</div>}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * What the port ahead will want to see. Shown BEFORE you commit, because a cost
  * you can only discover by being stopped is a gotcha, not a decision — and the
  * whole point is that you weigh the duty against the profit while plotting.
  */
-function CustomsWarning({ game, site }) {
-  const gov = govOf(site);
-  const owed = controlledCargo(game.player, gov);
-  const banned = illegalCargo(game.player, gov);
-  if (!owed.any && !banned.any) return null;
-  return (
-    <>
-      {banned.any && (
-        <div style={{ ...S.customs, background: "rgba(193,84,42,0.12)", borderColor: "var(--hot)" }}>
-          <b style={{ color: "var(--hot)" }}>Illegal here.</b>{" "}
-          {banned.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")} — banned under {gov.type.toLowerCase()},
-          and this is a <b>{Math.round(gov.law * 100)}%</b>-policed approach. Caught, you lose the cargo and about {money(banned.fine)}.
-          That is the trade: this is also where it is worth most.
-        </div>
-      )}
-      {owed.any && (
-        <div style={S.customs}>
-          <b>{gov.type}</b> — this port polices controlled cargo.
-          You are carrying {owed.lines.map((l) => `${l.tonnes} t ${l.name.toLowerCase()}`).join(" and ")};
-          declared at inspection the duty is about <b>{money(owed.duty)}</b>. Legal, and not cheap.
-        </div>
-      )}
-    </>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // STANDING — who out here knows your name, what it took, and what it buys.
@@ -955,100 +665,9 @@ function CustomsWarning({ game, site }) {
 // Colour is never the message (project rule 4): every tier shows its word and a
 // signed number, and the bar carries a text label for a screen reader.
 // ---------------------------------------------------------------------------
-function StandingPanel({ game }) {
-  const track = reputationTrack(game);
-  const [open, setOpen] = useState(null);
-  return (
-    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
-      <div style={S.siteName}>Standing</div>
-      <div style={S.why}>
-        Who is out here this run, and what they make of you. Standing moves when you meet
-        them between worlds — a fight, a bribe, an inspection complied with, a distress
-        call answered or ignored. It starts where their disposition puts it, not at zero.
-      </div>
-
-      {track.length === 0 && (
-        <div style={{ ...S.small, padding: "0 18px" }}>Nobody has been drawn into this world. That should not happen.</div>
-      )}
-
-      {track.map((r) => {
-        const ledger = repLedger(game, { factionId: r.factionId, limit: 6 });
-        const isOpen = open === r.factionId;
-        return (
-          <div key={r.factionId} style={S.repCard}>
-            <div style={S.row2}>
-              <b>{r.faction.name}</b>
-              <span style={{ color: r.tier.tone, fontWeight: 700, fontSize: 13 }}>
-                {r.tier.name} · {r.standing > 0 ? "+" : ""}{r.standing}
-              </span>
-            </div>
-            <RepBar standing={r.standing} tone={r.tier.tone} label={`${r.faction.name}: ${r.tier.name}`} />
-            <div style={{ ...S.small, marginTop: 6 }}>
-              {r.archetype?.name} · holds {r.siteName}
-              {r.atTheirPort ? " — you are docked in their hall" : r.inTheirSystem ? " — you are in their space" : ""}
-            </div>
-            <div style={{ ...S.small, marginTop: 6, color: "#CDD5E4" }}>{r.tier.note}</div>
-
-            <button style={S.repLedgerBtn} onClick={() => setOpen(isOpen ? null : r.factionId)}
-              aria-expanded={isOpen}>
-              {ledger.length
-                ? `${isOpen ? "▾" : "▸"} What it took (${ledger.length})`
-                : "▸ Nothing between you yet"}
-            </button>
-            {isOpen && (
-              ledger.length ? (
-                <div style={{ marginTop: 6 }}>
-                  {ledger.map((e, i) => (
-                    <div key={i} style={S.repEntry}>
-                      <div style={S.row2}>
-                        <span style={S.small}>{fmtDate(e.t)}</span>
-                        <span style={{ color: e.delta > 0 ? "#3E9B6E" : "var(--hot)", fontWeight: 700, fontSize: 12.5 }}>
-                          {e.delta > 0 ? "+" : ""}{e.delta} → {e.standing > 0 ? "+" : ""}{e.standing}
-                        </span>
-                      </div>
-                      <div style={{ ...S.small, color: "#CDD5E4" }}>{e.reason}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ ...S.small, marginTop: 6 }}>
-                  You have not met them out there. This number is where their disposition
-                  toward a stranger started, and nothing has moved it.
-                </div>
-              )
-            )}
-          </div>
-        );
-      })}
-
-      <div style={S.yardHead}>What standing buys</div>
-      <div style={{ ...S.small, padding: "0 18px 6px" }}>
-        One thing today, and this screen will not pretend otherwise: <b>a name they know is a
-        name they will listen to</b>. Talking your way out of an encounter shifts by up to 40
-        percentage points across the ladder
-        {track.length ? <> — with your best name out here, {track[0].faction.name}, that is currently{" "}
-          <b>{track[0].talkBonusPct > 0 ? "+" : ""}{track[0].talkBonusPct} points</b></> : null}.
-        Everything else standing could buy — a friendly port's tariff, contracts offered only to
-        names they trust, a region that turns hostile — is not built yet. It is the next decision,
-        not a hidden feature.
-      </div>
-    </div>
-  );
-}
 
 /** A diverging bar centred on zero: left of centre is trouble, right is trust.
  *  Never the only carrier of meaning — the tier word and the number sit above it. */
-function RepBar({ standing, tone, label }) {
-  const span = REP_MAX - REP_MIN;                 // 200 points, centre at 50%
-  const f = Math.max(0, Math.min(1, (standing - REP_MIN) / span));
-  const left = Math.min(f, 0.5), right = Math.max(f, 0.5);
-  return (
-    <div style={S.repTrack} role="img" aria-label={`${label}, ${standing > 0 ? "plus " : ""}${standing} out of 100`}>
-      <div style={{ ...S.repFill, left: `${left * 100}%`, width: `${(right - left) * 100}%`, background: tone }} />
-      <div style={S.repZero} />
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // THE ATLAS — what this captain has learned about the real solar system.
@@ -1058,214 +677,10 @@ function RepBar({ standing, tone, label }) {
 // once when you arrive with a survey lab fitted. The facts are the treasure,
 // and they are real (docs/site-atlas.md carries the sourcing ledger).
 // ---------------------------------------------------------------------------
-function AtlasPanel({ game }) {
-  const groups = atlasFor(game);
-  const { known, total } = atlasProgress(game);
-  const hasLab = fittedStats(game.player.ship.hull, game.player.ship.modules).canSurvey;
-  return (
-    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
-      <div style={S.siteName}>Atlas</div>
-      <div style={S.why}>
-        {known} of {total} places charted. Docking somewhere charts it;
-        arriving anywhere with a <b>survey lab</b> fitted charts its whole system —
-        including the places nobody has built on{hasLab ? ". Yours is aboard." : ". You don't carry one."}
-      </div>
-      {groups.map(({ system, surveyed, places }) => (
-        <div key={system.id}>
-          <div style={S.yardHead}>
-            {system.name}
-            {surveyed && <span style={{ ...S.legalTag, marginLeft: 8 }}>surveyed</span>}
-          </div>
-          {places.map(({ place, revealed, feature, site, visited }) => (
-            <div key={place.id} style={{ ...S.atlasRow, opacity: revealed ? 1 : 0.55 }}>
-              {revealed ? (
-                <>
-                  <div style={S.row2}>
-                    <b>{place.name}</b>
-                    <span style={S.small}>
-                      {visited ? "✓ visited" : feature ? "landmark" : site ? site.name : "unoccupied"}
-                    </span>
-                  </div>
-                  <div style={{ ...S.small, marginTop: 3 }}>{place.why}</div>
-                </>
-              ) : (
-                <div style={S.row2}>
-                  <span style={{ color: "var(--muted)" }}>???</span>
-                  <span style={S.small}>{feature ? "landmark — survey to chart" : "unsurveyed"}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-      <div style={{ ...S.small, padding: "10px 18px", fontStyle: "italic" }}>
-        Every entry here is a real place, and every reason is a real reason.
-        The atlas persists with your save — a finished run is a finished map.
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // The Ship Yard — repair, fit modules, trade up (tech-gated). Where money goes.
 // ---------------------------------------------------------------------------
-function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, onDismiss, onBuyDrive }) {
-  const p = game.player;
-  const site = siteOf(game, p.at);
-  const stats = fittedStats(p.ship.hull, p.ship.modules);
-  const slots = slotUsage(p.ship.hull, p.ship.modules);
-  const hull = HULL_BY_ID[p.ship.hull];
-  const dmg = 100 - (p.ship.hullPct ?? 100);
-  const repair = repairCost(game);
-  const ships = shipsForSale(game, p.at);
-  const mods = modulesForSale(game);
-  const yardTech = techOf(site);
-  const eff = effectiveSkills(p);
-  // crewForHire wants the SITE, not its id — passing the id made siteId
-  // undefined and threw on the first character of the hash. It has been
-  // crashing the whole Yard tab since crew landed; nothing tests the UI.
-  const forHire = crewForHire(game.seed, site, game.t);
-  const berths = berthsFor(hull);
-
-  return (
-    <div style={{ overflowY: "auto", paddingBottom: 20 }}>
-      <div style={S.siteName}>Ship Yard</div>
-      <div style={S.why}>{yardTech.name} yard — {yardTech.note} Trade-in on your {hull.name}: {money(tradeInValue(p.ship))}.</div>
-
-      {/* Current ship */}
-      <div style={S.yardCard}>
-        <div style={S.yardTop}><b>{hull.emoji} {p.ship.name}</b><span style={S.small}>{hull.name}</span></div>
-        <div style={S.yardStats}>
-          <span>Hold {stats.cargoTonnes} t</span>
-          <span>Tank {stats.fuelTonnes} t</span>
-          <span>Berths {p.crew?.length || 0}/{berths}</span>
-          <span style={{ color: dmg > 0 ? "var(--hot)" : "#3E9B6E" }}>Hull {p.ship.hullPct ?? 100}%</span>
-        </div>
-        <div style={{ ...S.yardStats, marginTop: 6 }}>
-          {Object.entries(SLOT_KINDS).map(([k, kind]) => (
-            <span key={k} style={{ color: slots.total[k] === 0 ? "var(--muted)" : "#CDD5E4" }}
-              title={kind.note}>{kind.emoji} {kind.name} {slots.used[k]}/{slots.total[k]}</span>
-          ))}
-        </div>
-        {/* Their Ship Yard led with how far you can go. Ours made you open the
-            course plotter and read every row to find out. */}
-        <RangeLine game={game} />
-        {dmg > 0
-          ? <button style={S.yardBtn} onClick={onRepair}>Repair hull — {money(repair)}</button>
-          : <div style={{ ...S.small, marginTop: 6 }}>Hull sound. No repairs needed.</div>}
-      </div>
-
-      <DriveShop game={game} onBuyDrive={onBuyDrive} />
-
-      {/* The escape pod — the cheapest insurance in the game */}
-      <div style={{ ...S.yardCard, borderColor: p.ship.escapePod ? "#3E9B6E" : "var(--hot)" }}>
-        <div style={S.yardTop}>
-          <b>{ESCAPE_POD.emoji} {ESCAPE_POD.name}</b>
-          <span style={{ ...S.small, color: p.ship.escapePod ? "#3E9B6E" : "var(--hot)" }}>
-            {p.ship.escapePod ? "Aboard" : "Not fitted"}
-          </span>
-        </div>
-        <div style={S.small}>{ESCAPE_POD.note}</div>
-        {!p.ship.escapePod && (
-          <button style={S.yardBtn} onClick={onBuyPod}>Fit a pod — {money(ESCAPE_POD.price)}</button>
-        )}
-      </div>
-
-      {/* Crew */}
-      <div style={S.yardHead}>Crew ({p.crew?.length || 0}/{berths} berths · {money(dailyWages(p))}/day)</div>
-      {berths === 0 && (
-        <div style={{ ...S.small, padding: "0 18px 6px" }}>
-          A {hull.name} has one berth, and you're in it. A bigger hull is the only way to carry anyone.
-        </div>
-      )}
-      {(p.crew || []).map((id) => {
-        const c = CREW_BY_ID[id];
-        return (
-          <div key={id} style={S.modRow}>
-            <div>
-              <b>{c.name}</b> <span style={S.crewTag}>{c.skill} {c.rating}</span>
-              <div style={S.small}>{money(c.wage)}/day · {c.blurb}</div>
-            </div>
-            <button style={S.modBtn} onClick={() => onDismiss(id)}>Pay off</button>
-          </div>
-        );
-      })}
-      {berths > 0 && (
-        <>
-          <div style={{ ...S.small, padding: "4px 18px 6px" }}>
-            {/* The rule, stated where it applies, because it's the whole system */}
-            The best hand aboard does the job: {SKILLS.map((s) => `${s.name} ${eff[s.id]}${eff[`${s.id}By`] ? "*" : ""}`).join(" · ")}
-            {SKILLS.some((s) => eff[`${s.id}By`]) && <span> — * = a hire, not you.</span>}
-          </div>
-          {forHire.filter((c) => !(p.crew || []).includes(c.id)).map((c) => (
-            <div key={c.id} style={S.modRow}>
-              <div>
-                <b>{c.name}</b> <span style={S.crewTag}>{c.skill} {c.rating}</span>
-                <div style={S.small}>{money(c.wage)}/day · {c.blurb}</div>
-              </div>
-              <button style={{ ...S.modBtn, opacity: berthsFree(p) > 0 ? 1 : 0.4 }}
-                disabled={berthsFree(p) <= 0} onClick={() => onHire(c.id)}>
-                {berthsFree(p) > 0 ? "Sign on" : "No berth"}
-              </button>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* Fitted modules */}
-      <div style={S.yardHead}>Fittings ({slots.usedSlots}/{slots.totalSlots} bays)</div>
-      {p.ship.modules.length === 0 && <div style={{ ...S.small, padding: "0 18px 6px" }}>Nothing fitted. Add capability below.</div>}
-      {p.ship.modules.map((id) => (
-        <div key={id} style={S.modRow}>
-          <div><b>{MODULE_BY_ID[id].emoji} {MODULE_BY_ID[id].name}</b> <span style={S.crewTag}>{MODULE_BY_ID[id].slot}</span>
-            <div style={S.small}>{MODULE_BY_ID[id].note}</div></div>
-          <button style={S.modBtn} onClick={() => onRemove(id)}>Remove</button>
-        </div>
-      ))}
-
-      {/* Modules for sale */}
-      <div style={S.yardHead}>Fit a module</div>
-      {mods.filter((m) => !m.fitted).map(({ module, canFit, slotsFree, slotKind }) => {
-        const noBay = slotsFree <= 0;
-        return (
-          <div key={module.id} style={{ ...S.modRow, opacity: noBay ? 0.55 : 1 }}>
-            <div><b>{module.emoji} {module.name}</b> <span style={S.small}>{money(module.price)}</span>
-              {" "}<span style={S.crewTag}>{slotKind.name.toLowerCase()} bay</span>
-              <div style={S.small}>{module.note}</div></div>
-            <button style={{ ...S.modBtn, opacity: canFit ? 1 : 0.4 }} disabled={!canFit}
-              onClick={() => onFit(module.id)}
-              title={noBay ? `This hull has no free ${slotKind.name.toLowerCase()} bay` : ""}>
-              {noBay ? "No bay" : "Fit"}
-            </button>
-          </div>
-        );
-      })}
-
-      {/* Ships for sale */}
-      <div style={S.yardHead}>Ships for sale</div>
-      {ships.map(({ hull: h, owned, net, affordable, cargoFits, crewFits, berths: b }) => (
-        <div key={h.id} style={{ ...S.shipRow, ...(owned ? S.shipOwned : null) }}>
-          <div style={{ flex: 1 }}>
-            <div><b>{h.emoji} {h.name}</b> {owned && <span style={S.ownedTag}>current</span>}</div>
-            <div style={S.small}>
-              hold {h.cargoTonnes} t · tank {h.fuelTonnes} t · {b} berth{b === 1 ? "" : "s"}
-              {" · "}⚡{h.slots.weapon} 🛡{h.slots.shield} 🔩{h.slots.gadget}
-            </div>
-            <div style={S.shipNote}>{h.note}</div>
-          </div>
-          {owned ? <span style={S.small}>—</span>
-            : <button style={{ ...S.shipBuyBtn, opacity: affordable && cargoFits && crewFits ? 1 : 0.4 }}
-                disabled={!affordable || !cargoFits || !crewFits}
-                onClick={() => onBuyShip(h.id)}
-                title={!cargoFits ? "Your cargo won't fit — sell some first"
-                  : !crewFits ? "Not enough berths for your crew — pay someone off first" : ""}>
-                {net >= 0 ? money(net) : `+${money(-net)}`}
-              </button>}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // THE DRIVE SHOP — the only purchase that redraws the map.
@@ -1279,198 +694,19 @@ function Yard({ game, onBuyShip, onFit, onRemove, onRepair, onBuyPod, onHire, on
 // reasons teach: the ion drive waits for a travel model with launch windows in
 // it, and the torch is impossible and this game says why.
 // ---------------------------------------------------------------------------
-function DriveShop({ game, onBuyDrive }) {
-  const p = game.player;
-  const rows = drivesForSale(game);
-  const current = DRIVES[p.ship.drive] || DRIVES.methalox;
-  const stats = fittedStats(p.ship.hull, p.ship.modules);
-  const insulation = stats?.cryo ? CRYO_FACTOR : 1;
-  // What the tank alone would lose over a long coast — the number that makes
-  // "hydrogen does not keep" a fact you feel rather than read.
-  const yearKept = tankAfter(1, current, 365, insulation);
-
-  return (
-    <>
-      <div style={S.yardHead}>Drive · {current.name}</div>
-      <div style={{ ...S.small, padding: "0 18px 8px" }}>
-        {current.note}{" "}
-        {current.boilOffPerDay > 0 ? (
-          <span style={{ color: yearKept < 0.75 ? "var(--hot)" : "var(--gold)" }}>
-            It runs on liquid hydrogen, which boils: a year of coasting leaves{" "}
-            <b>{Math.round(yearKept * 100)}%</b> of whatever is still in the tank
-            {stats?.cryo ? ", with the cryocooler running." : ". A cryocooler cuts that to a tenth."}
-          </span>
-        ) : (
-          <span>It keeps indefinitely in the tank — which is most of why anyone still flies one.</span>
-        )}
-      </div>
-      {rows.map(({ drive: d, owned, net, canBuy, reason }) => (
-        <div key={d.id} style={{ ...S.shipRow, ...(owned ? S.shipOwned : null), opacity: d.forSale ? 1 : 0.6 }}>
-          <div style={{ flex: 1 }}>
-            <div>
-              <b>{d.name}</b> {owned && <span style={S.ownedTag}>fitted</span>}
-              {d.speculative && <span style={S.bannedTag}>speculative</span>}
-            </div>
-            <div style={S.small}>
-              {d.isp} s exhaust · {d.trajectory}
-              {d.boilOffPerDay > 0 ? " · hydrogen, and it boils" : " · storable"}
-              {d.forSale && !owned && ` · needs a ${TECH_LEVELS[d.minTech]?.name.toLowerCase()} yard`}
-            </div>
-            <div style={S.shipNote}>{reason || d.note}</div>
-          </div>
-          {owned ? <span style={S.small}>—</span>
-            : d.forSale
-              ? <button style={{ ...S.shipBuyBtn, opacity: canBuy ? 1 : 0.4 }} disabled={!canBuy}
-                  onClick={() => onBuyDrive(d.id)} title={reason || ""}>
-                  {net >= 0 ? money(net) : `+${money(-net)}`}
-                </button>
-              : <span style={S.small}>—</span>}
-        </div>
-      ))}
-      <div style={{ ...S.small, padding: "6px 18px 0" }}>
-        Trade-in on the {current.name.toLowerCase()} aboard: {money(driveTradeIn(p.ship.drive))}.
-        A refit delivers the tank full. Your drive comes with you when you change hulls.
-      </div>
-    </>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // System Info — the character of a port (tech, government, danger, pressure).
 // ---------------------------------------------------------------------------
-function SystemInfoBlock({ game, siteId }) {
-  const info = systemInfo(game, siteId);
-  if (!info) return null;
-  // POLICE AND PIRATES ON SEPARATE LINES, as Space Trader had them — because a
-  // heavily patrolled lane is SAFE for a legal hold and hostile to a banned one,
-  // and one netted "danger" word cannot say that.
-  const pTone = { Abundant: "#7FB2CE", Moderate: "#7FB2CE", Sparse: "var(--muted)", Absent: "var(--gold)" }[info.policeWord];
-  const rTone = { Swarms: "var(--hot)", Many: "var(--hot)", Some: "var(--gold)", Few: "#3E9B6E" }[info.pirateWord];
-  return (
-    <div style={S.sysinfo}>
-      <div style={S.sysRow}>
-        <span style={S.sysChip}>{info.tech.name}</span>
-        <span style={S.sysChip}>{info.gov.type}</span>
-        <span style={S.sysPop}>pop. {info.population.toLocaleString()}</span>
-      </div>
-      <div style={S.sysRow}>
-        <span style={{ ...S.sysChip, color: pTone, borderColor: pTone }} title={info.policeNote}>
-          👮 Police: {info.policeWord}
-        </span>
-        <span style={{ ...S.sysChip, color: rTone, borderColor: rTone }} title={info.pirateNote}>
-          ☠ Pirates: {info.pirateWord}
-        </span>
-      </div>
-      <div style={S.sysPressure}>{info.pressure}</div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // The local newspaper — the "why go far" signal, drawn from factions + markets.
 // ---------------------------------------------------------------------------
-function Newspaper({ game, onBuyPaper }) {
-  // Closed by default. It used to open onto the market screen and push the
-  // shelves below the fold on arrival at every port.
-  const [open, setOpen] = useState(false);
-  const news = generateNews(game);
-  if (!news.items.length) return null;
-  const bought = game.paperAt === game.player.at;
-  const price = paperPrice(game);
-  const tone = { crisis: "var(--hot)", danger: "var(--hot)", opportunity: "#3E9B6E", market: "var(--gold)" };
-  return (
-    <div style={S.paper}>
-      <button style={S.paperHead} onClick={() => setOpen((v) => !v)}>
-        <span>📰 {news.paper}</span>
-        <span style={S.paperToggle}>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (bought ? (
-        <div style={S.paperBody}>
-          {news.items.map((it, i) => (
-            <div key={i} style={S.headline}>
-              <span style={{ color: tone[it.kind] || "var(--muted)" }}>▍</span> {it.headline}
-            </div>
-          ))}
-          <div style={S.paperNote}>{news.reachNote}</div>
-        </div>
-      ) : (
-        // Not free. The whole game says information is a resource; a feed of
-        // every shortage in the system, handed over for nothing, said otherwise.
-        <div style={S.paperBody}>
-          <div style={S.small}>
-            {news.items.length} {news.items.length === 1 ? "story" : "stories"} on the wire today — {news.reachNote}.
-          </div>
-          <button style={{ ...S.smallBtn, marginTop: 8 }} onClick={onBuyPaper}>
-            Buy a copy — {money(price)}
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Market intel — see the trade before you fly (Space Trader's Average Price
 // List + Price Differences, and our light-lag information model made visible).
 // ---------------------------------------------------------------------------
-function MarketIntel({ game, toId, shippingPerTonne }) {
-  const carrying = cargoUsed(game.player) > 0;
-  const { rows, freshness } = runPlan(game, toId, shippingPerTonne);
-  const cargo = carrying ? cargoValueAt(game, toId) : null;
-  const best = rows.filter((r) => r.viable).slice(0, 3);
-  const freshTone = { live: "#3E9B6E", recent: "#3E9B6E", delayed: "var(--gold)", stale: "var(--hot)", occluded: "var(--hot)" }[freshness?.key] || "var(--muted)";
-
-  // SOLAR CONJUNCTION: the Sun stands between here and there. No estimates, no
-  // news — flying is still allowed, but it is a bet, and the panel says so
-  // instead of pretending an empty list means "nothing profitable".
-  if (freshness?.key === "occluded") {
-    return (
-      <div style={S.intel}>
-        <div style={S.intelHead}>
-          Market intel
-          <span style={{ ...S.freshTag, color: freshTone, borderColor: freshTone }}>{freshness.label}</span>
-        </div>
-        <div style={{ ...S.small, color: "var(--hot)" }}>☀ Solar conjunction.</div>
-        <div style={S.intelNote}>{freshness.note}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={S.intel}>
-      <div style={S.intelHead}>
-        Market intel
-        <span style={{ ...S.freshTag, color: freshTone, borderColor: freshTone }}>{freshness?.label}</span>
-      </div>
-
-      {carrying && (
-        <div style={S.intelBlock}>
-          <div style={S.intelLabel}>Your cargo would fetch there (est.)</div>
-          {cargo.lines.map((l) => (
-            <div key={l.id} style={S.intelRow}>
-              <span>{l.tonnes} t {l.name}</span>
-              <span>{l.sold ? money(l.value) : "not traded there"}</span>
-            </div>
-          ))}
-          <div style={{ ...S.intelRow, fontWeight: 700, color: "var(--gold)" }}>
-            <span>Total</span><span>~{money(cargo.total)}</span>
-          </div>
-        </div>
-      )}
-
-      <div style={S.intelBlock}>
-        <div style={S.intelLabel}>Best to carry from here (est. margin/t)</div>
-        {best.length ? best.map((r) => (
-          <div key={r.id} style={S.intelRow}>
-            <span>{r.name}</span>
-            <span style={{ color: "var(--gold)" }}>+{money(r.marginPerTonne)}</span>
-          </div>
-        )) : <div style={S.small}>Nothing here pays for the trip. Try a nearer world or a fuller hold.</div>}
-      </div>
-      <div style={S.intelNote}>{freshness?.note}</div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Orrery — with the player ship on it
