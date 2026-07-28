@@ -22,6 +22,7 @@
 // ===========================================================================
 
 import { CUES, CUE_BY_ID, ROTATE_AFTER_SECONDS, CROSSFADE_SECONDS } from "./data/music.js";
+import { SFX, RATE_LIMIT_MS, SFX_BUS } from "./data/sfx.js";
 
 const STORE_KEY = "solbound.audio.v1";
 
@@ -93,16 +94,84 @@ export function cueFor(context, previousId = null, rotate = false) {
 export const cueBars = (cue) => cue.chords.reduce((n, c) => n + c.bars, 0);
 
 // ---------------------------------------------------------------------------
+// Sound effects, the pure half
+// ---------------------------------------------------------------------------
+
+/**
+ * The root of a cue's key, in semitones above C. `null` if unparseable.
+ *
+ * The scores write keys the way a musician does — "A minor", "F-sharp minor" —
+ * so this reads that rather than making the data carry a number nobody could
+ * check by eye.
+ */
+export function keyRoot(keyName) {
+  const m = /^([A-G])(?:[-\s]?(sharp|flat|#|b))?/i.exec(String(keyName || "").trim());
+  if (!m) return null;
+  const base = SEMITONES[m[1].toUpperCase()];
+  if (base === undefined) return null;
+  const acc = (m[2] || "").toLowerCase();
+  const shift = acc === "sharp" || acc === "#" ? 1 : acc === "flat" || acc === "b" ? -1 : 0;
+  return ((base + shift) % 12 + 12) % 12;
+}
+
+/**
+ * How far to transpose a tonal effect so it sits in the cue that is playing.
+ *
+ * The sounds are written in C. Moving them by the cue's root would send a bright
+ * confirmation chirp up as much as eleven semitones, which turns a clean ping
+ * into a shriek — so the interval is folded to the nearest equivalent, ±6 at
+ * worst. A tritone away is still the furthest any of them can land, and that is
+ * fine: it is one interval, not an octave of drift.
+ */
+export function sfxTranspose(keyName) {
+  const root = keyRoot(keyName);
+  if (root === null) return 0;
+  return root > 6 ? root - 12 : root;
+}
+
+/** Semitones to a frequency ratio. */
+export const semitoneRatio = (n) => Math.pow(2, n / 12);
+
+/**
+ * May this sound play now?
+ *
+ * `lastAt` is when it last played, in ms, or undefined. See RATE_LIMIT_MS in
+ * data/sfx.js for why this exists at all — the market re-prices thirty times a
+ * second and nothing wired near it may become a drone.
+ */
+export const sfxAllowed = (lastAt, now, limit = RATE_LIMIT_MS) =>
+  lastAt === undefined || lastAt === null || now - lastAt >= limit;
+
+/** How long a sound lasts, from its longest layer. Used to size its bus node. */
+export const sfxDuration = (def) =>
+  Math.max(0, ...(def?.layers || []).map((l) => (l.at || 0) + (l.dur || 0)));
+
+// ---------------------------------------------------------------------------
 // Stored preference
 // ---------------------------------------------------------------------------
 
+const DEFAULT_PREF = { on: true, level: 0.5, sfxOn: true, sfxLevel: 0.7 };
+
+/**
+ * The stored preference.
+ *
+ * SFX were added to this later and the key was deliberately NOT bumped: the two
+ * new fields simply default when absent, so every existing player keeps their
+ * music setting and picks up sound effects on. A version bump plus a migration
+ * ladder would be more ceremony than two booleans deserve.
+ */
 export function loadAudioPref() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return { on: true, level: 0.5 };
+    if (!raw) return { ...DEFAULT_PREF };
     const p = JSON.parse(raw);
-    return { on: p.on !== false, level: typeof p.level === "number" ? clamp(p.level, 0, 1) : 0.5 };
-  } catch { return { on: true, level: 0.5 }; }
+    return {
+      on: p.on !== false,
+      level: typeof p.level === "number" ? clamp(p.level, 0, 1) : DEFAULT_PREF.level,
+      sfxOn: p.sfxOn !== false,
+      sfxLevel: typeof p.sfxLevel === "number" ? clamp(p.sfxLevel, 0, 1) : DEFAULT_PREF.sfxLevel,
+    };
+  } catch { return { ...DEFAULT_PREF }; }
 }
 
 export function saveAudioPref(pref) {
@@ -162,6 +231,12 @@ function makeAirBuffer(ctx) {
  */
 export function createMusic() {
   let ctx = null, master = null, verb = null, verbGain = null;
+  // The SFX bus hangs off the destination beside `master`, NOT inside it. An
+  // alert has to stay audible when the music is turned down or off, and one
+  // fader for both means either the pads are too loud or the warning is
+  // inaudible. Two buses, two faders, one context.
+  let sfxBus = null;
+  const lastPlayed = {};
   let pref = loadAudioPref();
   let context = "dock";
   let current = null;             // { cue, gain, voices[], startedAt, bar }
@@ -185,7 +260,70 @@ export function createMusic() {
     verbGain.gain.value = 0.85;
     verb.connect(verbGain);
     verbGain.connect(master);
+    sfxBus = ctx.createGain();
+    sfxBus.gain.value = pref.sfxOn ? pref.sfxLevel * SFX_BUS : 0;
+    sfxBus.connect(ctx.destination);
     return ctx;
+  }
+
+  /**
+   * A short burst of shaped noise, built once and reused. Effects are far
+   * shorter than the music's air bed, so half a second is plenty and it costs
+   * one buffer for the whole session.
+   */
+  let noiseBuf = null;
+  function noise() {
+    if (noiseBuf) return noiseBuf;
+    const len = Math.floor(ctx.sampleRate * 0.5);
+    noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    // Math.random is fine HERE and nowhere else: an effect's noise is not game
+    // state, is never saved, and cannot affect a replay.
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return noiseBuf;
+  }
+
+  /** One layer of one effect. Returns nothing; it schedules and forgets. */
+  function playLayer(layer, into, at, ratio) {
+    const t0 = at + (layer.at || 0);
+    const dur = layer.dur || 0.1;
+    const attack = Math.min(layer.attack ?? 0.005, dur * 0.5);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t0);
+    env.gain.linearRampToValueAtTime(layer.peak ?? 0.4, t0 + attack);
+    // Exponential, because a linear fade on a short percussive sound reads as a
+    // click at the end rather than as a decay.
+    env.gain.exponentialRampToValueAtTime(0.0006, t0 + dur);
+    env.connect(into);
+
+    let node = env;
+    if (layer.bp || layer.lp) {
+      const f = ctx.createBiquadFilter();
+      f.type = layer.bp ? "bandpass" : "lowpass";
+      const corner = layer.bp || layer.lp;
+      f.frequency.setValueAtTime(corner, t0);
+      if (layer.sweepTo) f.frequency.exponentialRampToValueAtTime(Math.max(20, layer.sweepTo), t0 + dur);
+      f.Q.value = layer.q ?? (layer.bp ? 2 : 0.7);
+      f.connect(env);
+      node = f;
+    }
+
+    if (layer.kind === "noise") {
+      const src = ctx.createBufferSource();
+      src.buffer = noise();
+      src.loop = true;
+      src.connect(node);
+      src.start(t0);
+      src.stop(t0 + dur + 0.05);
+      return;
+    }
+    const o = ctx.createOscillator();
+    o.type = layer.wave || "sine";
+    o.frequency.setValueAtTime(layer.freq * ratio, t0);
+    if (layer.to) o.frequency.exponentialRampToValueAtTime(Math.max(20, layer.to * ratio), t0 + dur);
+    o.connect(node);
+    o.start(t0);
+    o.stop(t0 + dur + 0.05);
   }
 
   /** Build the voices for one cue and start its clock. */
@@ -376,6 +514,46 @@ export function createMusic() {
       if (!ctx || !pref.on) return;
       master.gain.setTargetAtTime(pref.level * 0.5, ctx.currentTime, 0.05);
     },
+
+    /**
+     * Fire an effect. Safe to call before anything has started, safe to call
+     * with an id that does not exist, and safe to call far too often — the rate
+     * limit is here rather than at the call sites, so no caller has to remember.
+     *
+     * `nowMs` is injectable purely so a test can drive the limiter.
+     */
+    playSfx(id, nowMs = Date.now()) {
+      const def = SFX[id];
+      if (!def || !pref.sfxOn) return false;
+      if (!sfxAllowed(lastPlayed[id], nowMs)) return false;
+      if (!ctx || ctx.state !== "running") return false;    // no gesture yet
+      lastPlayed[id] = nowMs;
+      // Tonal effects follow the cue that is playing, so a confirmation chirp
+      // belongs to the music instead of arriving from another application.
+      const ratio = def.tonal ? semitoneRatio(sfxTranspose(current?.cue?.key)) : 1;
+      const g = ctx.createGain();
+      g.gain.value = def.gain ?? 0.4;
+      g.connect(sfxBus);
+      const at = ctx.currentTime + 0.01;
+      for (const layer of def.layers) playLayer(layer, g, at, ratio);
+      // Let go of the node once the sound is over. Without this every effect
+      // leaves a live GainNode attached to the bus for the life of the session.
+      setTimeout(() => { try { g.disconnect(); } catch { /* already gone */ } },
+        (sfxDuration(def) + 0.4) * 1000);
+      return true;
+    },
+    setSfxOn(on) {
+      pref = { ...pref, sfxOn: on };
+      saveAudioPref(pref);
+      if (!ctx) return;
+      sfxBus.gain.setTargetAtTime(on ? pref.sfxLevel * SFX_BUS : 0, ctx.currentTime, 0.03);
+    },
+    setSfxLevel(level) {
+      pref = { ...pref, sfxLevel: clamp(level, 0, 1) };
+      saveAudioPref(pref);
+      if (!ctx || !pref.sfxOn) return;
+      sfxBus.gain.setTargetAtTime(pref.sfxLevel * SFX_BUS, ctx.currentTime, 0.05);
+    },
     pref: () => ({ ...pref }),
     nowPlaying: () => (current ? CUE_BY_ID[current.cue.id] : null),
     onChange(fn) { listeners.push(fn); return () => { listeners = listeners.filter((f) => f !== fn); }; },
@@ -383,7 +561,7 @@ export function createMusic() {
       if (timer) clearInterval(timer);
       timer = null;
       try { ctx && ctx.close(); } catch { /* nothing to close */ }
-      ctx = null; current = null; outgoing = []; listeners = [];
+      ctx = null; current = null; outgoing = []; listeners = []; sfxBus = null; noiseBuf = null;
     },
   };
 }

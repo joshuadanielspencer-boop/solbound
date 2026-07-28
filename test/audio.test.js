@@ -19,7 +19,9 @@
 import { describe, it, expect } from "vitest";
 import {
   noteToFreq, chordFreqs, beatSeconds, barSeconds, contextOf, cuesFor, cueFor, cueBars,
+  keyRoot, sfxTranspose, semitoneRatio, sfxAllowed, sfxDuration,
 } from "../src/audio.js";
+import { SFX, SFX_IDS, RATE_LIMIT_MS } from "../src/data/sfx.js";
 import { CUES, CUE_BY_ID, CONTEXTS, ROTATE_AFTER_SECONDS, CROSSFADE_SECONDS } from "../src/data/music.js";
 import { starfield, galacticBand, TIERS } from "../src/starfield.js";
 
@@ -211,5 +213,114 @@ describe("the starfield", () => {
     starfield(1000, 99);
     const a = Math.random(), b = Math.random();
     expect(a).not.toBe(b);
+  });
+});
+
+// ===========================================================================
+// SOUND EFFECTS
+//
+// Same split as the music: the engine needs an AudioContext and gets none here,
+// but everything that decides WHAT sounds and WHEN is plain arithmetic over
+// plain data, and that is where a player-visible bug would actually live.
+// ===========================================================================
+
+describe("the effect definitions are playable", () => {
+  it("every layer names a kind the engine can build", () => {
+    for (const [id, def] of Object.entries(SFX)) {
+      expect(def.layers.length, id).toBeGreaterThan(0);
+      for (const l of def.layers) {
+        expect(["tone", "noise"], `${id}`).toContain(l.kind);
+        expect(l.dur, `${id}`).toBeGreaterThan(0);
+        if (l.kind === "tone") {
+          expect(l.freq, `${id}`).toBeGreaterThan(20);
+          expect(l.freq, `${id}`).toBeLessThan(9000);
+          expect(["sine", "square", "sawtooth", "triangle"], id).toContain(l.wave || "sine");
+        }
+      }
+    }
+  });
+
+  it("stays short enough to be an effect and not an interruption", () => {
+    // The longest thing here is the encounter alert, and even that has to stop.
+    // A tone still sounding while somebody reads four options is not
+    // information, it is pressure to click anything.
+    for (const id of SFX_IDS) {
+      expect(sfxDuration(SFX[id]), id).toBeLessThan(1.7);
+    }
+    expect(sfxDuration(SFX.alert)).toBeLessThan(1.1);
+  });
+
+  it("says, for every sound, what visible thing it marks", () => {
+    // Project rule 4: sound is the second channel and never the only one. If a
+    // sound cannot name what it accompanies on screen, it should not exist.
+    for (const id of SFX_IDS) {
+      expect(SFX[id].marks, id).toBeTruthy();
+    }
+  });
+
+  it("keeps the levels inside a range that will not clip the bus", () => {
+    for (const [id, def] of Object.entries(SFX)) {
+      expect(def.gain, id).toBeGreaterThan(0);
+      expect(def.gain, id).toBeLessThanOrEqual(0.6);
+      const stacked = def.layers.reduce((n, l) => n + (l.peak ?? 0.4), 0);
+      expect(stacked * def.gain, id).toBeLessThan(1);
+    }
+  });
+});
+
+describe("effects sit in the key the music is in", () => {
+  it("reads the keys the scores are actually written in", () => {
+    expect(keyRoot("A minor")).toBe(9);
+    expect(keyRoot("C minor")).toBe(0);
+    expect(keyRoot("D minor")).toBe(2);
+    expect(keyRoot("E minor")).toBe(4);
+    expect(keyRoot("F-sharp minor")).toBe(6);
+    expect(keyRoot("")).toBe(null);
+    expect(keyRoot("H major")).toBe(null);
+  });
+
+  it("parses every key in data/music.js", () => {
+    for (const cue of CUES) expect(keyRoot(cue.key), cue.id).not.toBe(null);
+  });
+
+  it("never transposes a chirp more than a tritone", () => {
+    // Moving a bright confirmation ping up eleven semitones turns a clean sound
+    // into a shriek, so the interval folds to the nearest equivalent.
+    for (const cue of CUES) {
+      const n = sfxTranspose(cue.key);
+      expect(Math.abs(n), cue.id).toBeLessThanOrEqual(6);
+    }
+    expect(sfxTranspose("A minor")).toBe(-3);      // not +9
+    expect(sfxTranspose("C minor")).toBe(0);
+    expect(sfxTranspose("F-sharp minor")).toBe(6);
+  });
+
+  it("keeps every transposed tone inside hearing at the extremes", () => {
+    for (const cue of CUES) {
+      const r = semitoneRatio(sfxTranspose(cue.key));
+      for (const id of SFX_IDS) {
+        if (!SFX[id].tonal) continue;
+        for (const l of SFX[id].layers) {
+          if (l.kind !== "tone") continue;
+          expect(l.freq * r, `${id} in ${cue.key}`).toBeGreaterThan(40);
+          expect(l.freq * r, `${id} in ${cue.key}`).toBeLessThan(9000);
+        }
+      }
+    }
+  });
+});
+
+describe("the rate limiter", () => {
+  it("lets a first play through and blocks an immediate repeat", () => {
+    expect(sfxAllowed(undefined, 1000)).toBe(true);
+    expect(sfxAllowed(1000, 1000)).toBe(false);
+    expect(sfxAllowed(1000, 1000 + RATE_LIMIT_MS - 1)).toBe(false);
+    expect(sfxAllowed(1000, 1000 + RATE_LIMIT_MS)).toBe(true);
+  });
+
+  it("is short enough that mashing a button still hears every press", () => {
+    // The limiter exists for the 10 fps market re-price and the day-a-second
+    // dock clock, not to swallow deliberate input.
+    expect(RATE_LIMIT_MS).toBeLessThanOrEqual(120);
   });
 });

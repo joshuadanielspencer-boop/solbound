@@ -31,6 +31,7 @@
 // ===========================================================================
 
 import { useEffect, useRef, useState } from "react";
+import { useSfx } from "./sfx.jsx";
 
 // The three formatters every screen needs. They lived in play.jsx and are now
 // shared, because a panel that formats money differently from the HUD above it
@@ -53,11 +54,13 @@ export const fmtDur = (d) =>
  * because a paragraph here is how the old panel started.
  */
 export function Screen({ title, hint, onBack, right, children }) {
+  const sfx = useSfx();
   return (
     <div style={S.screen}>
       <div style={S.head}>
         {onBack && (
-          <button style={S.back} onClick={onBack} aria-label="Back">←</button>
+          <button style={S.back} aria-label="Back"
+            onClick={() => { sfx("back"); onBack(); }}>←</button>
         )}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={S.title}>{title}</div>
@@ -81,8 +84,11 @@ export function Screen({ title, hint, onBack, right, children }) {
  * something good, undefined for neutral.
  */
 export function NavButton({ icon, label, value, tone, note, disabled, onClick }) {
+  const sfx = useSfx();
   return (
-    <button style={{ ...S.nav, ...(disabled ? S.navOff : null) }} onClick={onClick} disabled={disabled}>
+    <button style={{ ...S.nav, ...(disabled ? S.navOff : null) }} disabled={disabled}
+      onFocus={() => sfx("focus")} onMouseEnter={() => sfx("focus")}
+      onClick={() => { sfx("select"); onClick?.(); }}>
       <span style={S.navIcon} aria-hidden="true">{icon}</span>
       <span style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
         <span style={S.navLabel}>{label}</span>
@@ -114,6 +120,7 @@ const toneColor = (tone) =>
  */
 export function InfoRow({ info, children, onActivate, selected, disabled }) {
   const [open, setOpen] = useState(false);
+  const sfx = useSfx();
   // A SHORT DELAY BEFORE THE BUBBLE OPENS. With none, dragging the cursor across
   // a list fired every description on the way past, which is a strobe rather
   // than a hover. 160ms is long enough that crossing a row does nothing and
@@ -133,8 +140,8 @@ export function InfoRow({ info, children, onActivate, selected, disabled }) {
   return (
     <div
       style={{ ...S.rowWrap, zIndex: open ? 20 : 1 }}
-      onMouseEnter={show} onMouseLeave={hide}
-      onFocusCapture={show} onBlurCapture={hide}
+      onMouseEnter={() => { sfx("focus"); show(); }} onMouseLeave={hide}
+      onFocusCapture={() => { sfx("focus"); show(); }} onBlurCapture={hide}
     >
       <div
         style={{
@@ -232,10 +239,13 @@ export function StatStrip({ items }) {
 }
 
 /** An action that is the point of the screen it is on. */
-export const PrimaryButton = ({ children, disabled, onClick, tone }) => (
-  <button style={{ ...S.primary, ...(disabled ? S.primaryOff : null), ...(tone === "quiet" ? S.primaryQuiet : null) }}
-    disabled={disabled} onClick={onClick}>{children}</button>
-);
+export const PrimaryButton = ({ children, disabled, onClick, tone }) => {
+  const sfx = useSfx();
+  return (
+    <button style={{ ...S.primary, ...(disabled ? S.primaryOff : null), ...(tone === "quiet" ? S.primaryQuiet : null) }}
+      disabled={disabled} onClick={() => { sfx("select"); onClick?.(); }}>{children}</button>
+  );
+};
 
 /** One line of explanation, for the bottom of a screen. Never more than two. */
 export const Footnote = ({ children }) => <div style={S.footnote}>{children}</div>;

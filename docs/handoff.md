@@ -91,6 +91,78 @@ of this file is the detail that block points at.
 
 ---
 
+## Sound effects — the alert and trade core, built 2026-07-28
+
+Proposed first, as asked, then built the half Joshua picked. Same approach as the
+music: **data in `src/data/sfx.js`, one player in `audio.js`, no audio files.**
+Ten sounds, about two kilobytes.
+
+**The rule that decides what everything sounds like**, and it is worth keeping if
+the set is ever extended:
+
+> There is no sound in space. Everything you hear is inside your own hull, or is
+> a tone your own console generated to tell you something.
+
+So no whoosh on launch and no explosion when you are hit. Refuelling is a pump
+that takes a moment to come up to pressure and stops with a valve click; damage
+is a bandpassed hit and a low thud through the frame; the encounter alert is a
+two-tone warble that pulses three times and **stops**, because a tone still
+sounding while somebody reads four options is not information, it is pressure to
+click anything.
+
+**Two buses, not one.** The SFX bus hangs off the destination beside the music's
+master, with its own fader in the ♪ popover. One fader for both means either the
+pads are too loud or the warning is inaudible. The stored pref gained `sfxOn` and
+`sfxLevel` with NO key bump — they default when absent, so every existing player
+keeps their music setting and picks up effects on.
+
+**Tonal effects follow the key of the cue that is playing.** `sfxTranspose()`
+reads "F-sharp minor" off the score and folds the interval to ±6 semitones, so a
+confirmation chirp sits inside the harmony instead of arriving from another
+application — and never lands eleven semitones up as a shriek. Tested against
+every cue in `data/music.js`.
+
+**Where they are wired, and why there:** `denied` hangs off `flash(_, "bad")`, so
+every refusal in the game already routes through it and no future error has to
+remember. `alert` fires from an effect on the encounter's arrival rather than
+from wherever the roll happens, so it cannot double-fire or be missed by a path
+that forgot. `chart` fires when `visited` or `surveyed` grows. `focus`/`select`/
+`back` live in `ui.jsx`'s primitives, so every screen in the panel tree gets them
+for nothing — via a small React context (`src/trader/sfx.jsx`) rather than
+prop-drilling a player through every component signature.
+
+### Measured in the browser, by counting scheduled audio nodes
+
+Patched `createOscillator`/`createBufferSource` and drove the real game, so "did
+it make a sound" is a measurement rather than an assumption:
+
+| | expected | measured |
+|---|---|---|
+| `focus` (hover a nav row) | 1 tone | +1 osc |
+| `select` (open a screen) | 1 tone | +1 osc |
+| `buy` | 1 tone + 1 noise | +1 osc, +1 buffer |
+| `chart` (arriving somewhere new) | 3 bell partials | +3 osc |
+
+**And one finding that changes the design note:** I had written that `denied`
+would be the most-heard sound in the game. It is not. The market **disables the
+button rather than raising the error** — a full hold clamps the quantity to zero,
+so Buy simply does nothing — so `denied` is reachable mainly from the Yard, where
+you can press a purchase you cannot afford. That is the better interface
+behaviour and it makes the sound much rarer than the wiring suggests. Corrected
+in the file.
+
+**Not yet heard in play:** `alert`, `damage` and `caught`. No encounter rolled on
+the two short lunar hops I flew. The wiring is in and tested at the data level;
+the *feel* of them is unheard, and they are the three most likely to be wrong.
+
+### Still to build from the proposal, if the core lands well
+
+`launch` (the air bed rising under a 40 Hz structural rumble — the ingredient is
+already in `audio.js` as `makeAirBuffer`), `dock` (a thump, then station air
+sounding different from ship air), `pause`, and standing up/down. Deliberately
+NOT built: anything on the drifting port clock. At a day a second, a per-day
+sound is torture.
+
 ## Session of 2026-07-28 (second) — the surface map, and a seam that was wrong everywhere
 
 **The two blockers on the surface map both had better answers than the questions
@@ -735,7 +807,9 @@ Surface every one of these when it becomes relevant rather than building past it
   settings ("our difficulty is the rocket equation and the faction draw"). Joshua
   asked for the control; this is a locked decision that needs revisiting rather
   than quietly overturning.
-- **Sound effects** — asked for a brainstorm, has not received one yet.
+- ~~Sound effects — asked for a brainstorm~~ → proposed and the core built
+  2026-07-28. **Unplayed:** every level, and the alert/damage/caught trio in
+  particular, which nobody has yet heard in a real encounter.
 
 **Long-standing, still open (see "Known balance notes"):**
 - Escape pod at $35,000 as the answer to death.

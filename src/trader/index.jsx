@@ -17,6 +17,7 @@ import { newGame } from "../tradergame.js";
 import { cargoUsed } from "../player.js";
 import { autosave, loadAutosave, hasSave, clearSave } from "../save.js";
 import { createMusic, loadAudioPref } from "../audio.js";
+import { SfxProvider } from "./sfx.jsx";
 
 // A cheap fingerprint of the things worth persisting. The clock changes `t` and
 // the markets ~30 times a second while flying; those must NOT trigger a save, or
@@ -104,6 +105,17 @@ export default function Trader() {
     setAudio((a) => { music.current?.setLevel(level); return { ...a, level }; });
   }, []);
   const setMusicContext = useCallback((c) => music.current?.setContext(c), []);
+  // Sound effects go out on their own bus (see audio.js) and are handed to the
+  // whole tree through a context, because the things that want to make a noise
+  // are leaves — a market row, a back arrow — and prop-drilling to all of them
+  // would touch every signature in the panel tree.
+  const playSfx = useCallback((id) => music.current?.playSfx(id) ?? false, []);
+  const toggleSfx = useCallback(() => {
+    setAudio((a) => { const next = { ...a, sfxOn: !a.sfxOn }; music.current?.setSfxOn(next.sfxOn); return next; });
+  }, []);
+  const setSfxLevel = useCallback((level) => {
+    setAudio((a) => { music.current?.setSfxLevel(level); return { ...a, sfxLevel: level }; });
+  }, []);
 
   const startNew = () => { clearSave(); setSaveExists(false); setPhase("create"); };
 
@@ -120,22 +132,27 @@ export default function Trader() {
     setPhase("play");
   };
 
-  if (phase === "intro") return <Intro onDone={() => setPhase("splash")} />;
-  if (phase === "play" && game) {
+  const screen = () => {
+    if (phase === "intro") return <Intro onDone={() => setPhase("splash")} />;
+    if (phase === "play" && game) {
+      return (
+        <Play game={game} setGame={setGame} onQuit={() => setPhase("splash")}
+          audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel}
+          onToggleSfx={toggleSfx} onSfxLevel={setSfxLevel}
+          onSetContext={setMusicContext} />
+      );
+    }
+    if (phase === "create") {
+      return <CreateCaptain onBegin={beginCaptain} onBack={() => setPhase("splash")} />;
+    }
+    // The menu has music too — "dock" is the calm set, which is what a title
+    // screen wants.
     return (
-      <Play game={game} setGame={setGame} onQuit={() => setPhase("splash")}
-        audio={audio} cue={cue} onToggleAudio={toggleAudio} onAudioLevel={setAudioLevel}
-        onSetContext={setMusicContext} />
+      <Splash onNew={startNew} hasSave={saveExists} onContinue={resume}
+        onImported={(g) => { setGame(g); setPhase("play"); }}
+        audio={audio} onToggleAudio={toggleAudio} />
     );
-  }
-  if (phase === "create") {
-    return <CreateCaptain onBegin={beginCaptain} onBack={() => setPhase("splash")} />;
-  }
-  // The menu has music too — "dock" is the calm set, which is what a title
-  // screen wants.
-  return (
-    <Splash onNew={startNew} hasSave={saveExists} onContinue={resume}
-      onImported={(g) => { setGame(g); setPhase("play"); }}
-      audio={audio} onToggleAudio={toggleAudio} />
-  );
+  };
+
+  return <SfxProvider value={playSfx}>{screen()}</SfxProvider>;
 }

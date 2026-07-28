@@ -24,6 +24,7 @@ import { hireCrew, dismissCrew } from "../crew.js";
 import { FaceOff } from "./ships.jsx";
 import { SurfaceView, SurfacePanel } from "./surface.jsx";
 import { hasSurfaceMap } from "../surface.js";
+import { useSfx } from "./sfx.jsx";
 import Panel, { SystemAtlas } from "./panels.jsx";
 import { makeSave, serialize } from "../save.js";
 import { encounterView, resolveEncounter, dismissEncounter } from "../encounters.js";
@@ -78,7 +79,9 @@ const fmtDate = (t) => new Date(t).toLocaleDateString("en-US", { year: "numeric"
 const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44).toFixed(0)} months` : `${(d / 365.25).toFixed(1)} years`;
 const dot = (rkm, k = 1) => Math.max(4, Math.min(22, Math.pow(rkm || 1000, 0.25) * 1.25)) * k;
 
-export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio, onAudioLevel, onSetContext }) {
+export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio, onAudioLevel,
+  onToggleSfx, onSfxLevel, onSetContext }) {
+  const sfx = useSfx();
   const [mode, setMode] = useState("dock");
   const [dest, setDest] = useState(null);
   const [sel, setSel] = useState(null);
@@ -98,7 +101,14 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   // away rather than hidden (orrery.js explains why that matters).
   const [trueScale, setTrueScale] = useState(false);
 
-  const flash = (text, kind = "ok") => setToast({ text, kind });
+  const flash = (text, kind = "ok") => {
+    // Every refusal in the game already comes through here — cannot afford it,
+    // cannot reach it, hold is full, not while under way. Hooking the sound to
+    // the toast rather than to each call site means no future error has to
+    // remember, and the sound can never disagree with what is on screen.
+    if (kind === "bad") sfx("denied");
+    setToast({ text, kind });
+  };
 
   // The soundtrack lives in index.jsx so it spans the menu as well as the game.
   // Play's only job is to say WHERE the player is, which decides the cue.
@@ -175,11 +185,41 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     return () => window.removeEventListener("keydown", onKey);
   }, [zoom, surface]);
 
+  // THE ALERT. Something matched your orbit, which is the one moment the game
+  // stops the clock and waits. Fired from an effect on the encounter's arrival
+  // rather than from wherever the roll happens, so it cannot go off twice for
+  // one encounter and cannot be missed by a code path that forgot.
+  const alerted = useRef(null);
+  useEffect(() => {
+    const e = game.encounter;
+    if (!e || e.outcome) { if (!e) alerted.current = null; return; }
+    const key = `${game.rollCursor}:${e.id || e.kind || ""}`;
+    if (alerted.current === key) return;
+    alerted.current = key;
+    sfx("alert");
+  }, [game.encounter, game.rollCursor, sfx]);
+
+  // THE REWARD. A place you had never charted is now on the map — design.md §1's
+  // whole chain in one moment, so it gets the brightest sound in the set.
+  const chartedCount = (game.visited?.length || 0) + (game.surveyed?.length || 0);
+  const charted = useRef(chartedCount);
+  useEffect(() => {
+    if (chartedCount > charted.current) sfx("chart");
+    charted.current = chartedCount;
+  }, [chartedCount, sfx]);
+
   // The encounter: choose, see what it cost, then get back under way.
   const doChoose = (choice) => {
     const r = resolveEncounter(game, choice);
     if (r.error) return flash(r.error, "bad");
     setGame(r.game);
+    // What it cost decides what you hear. Losing cargo to a seizure is a
+    // different kind of bad from taking a hit, and the two must not sound alike:
+    // one follows you afterwards and the other is repaired at the next yard.
+    const e = r.game.encounter?.outcome?.effects;
+    if (!e) return;
+    if (Object.keys(e.cargoLost || {}).length || e.record) sfx("caught");
+    else if (e.hullDamage > 0) sfx("damage");
   };
   const doDismiss = () => setGame((g) => dismissEncounter(g));
 
@@ -207,15 +247,16 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
     setZoom(null); setSurface(null);
     flash(`Under way to ${siteOf(game, destId)?.name}. Run the clock.`);
   };
-  const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
+  const doBuy = (id, qty) => { const r = buy(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad"); setGame(r.game); sfx("buy"); flash(`Bought ${r.bought} t of ${COMMODITY_BY_ID[id].name} for ${money(r.spent)}.`); };
   const doSell = (id, qty) => {
     const r = sell(game, id, qty); if (r.error) return flash(errMsg(r.error), "bad");
     setGame(r.game);
+    sfx("sell");
     const p = r.profit;
     const verdict = p > 0 ? `profit ${money(p)}` : p < 0 ? `LOSS ${money(-p)}` : "break-even";
     flash(`Sold ${r.sold} t of ${COMMODITY_BY_ID[id].name} for ${money(r.earned)} — ${verdict}.`, p < 0 ? "bad" : "ok");
   };
-  const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
+  const doRefuel = (t) => { const r = refuel(game, t); if (r.error) return flash(r.reason, "bad"); setGame(r.game); sfx("refuel"); flash(`Took on ${r.tonnes.toFixed(1)} t of propellant for ${money(r.spent)}.`); };
 
   // Ship-yard actions.
   const doBuyShip = (hullId) => { const r = buyShip(game, game.player.at, hullId); if (r.error) return flash(r.reason || r.error, "bad"); setGame(r.game); flash(r.net >= 0 ? `Traded up to a ${r.hullName} for ${money(r.net)}.` : `Traded down to a ${r.hullName}, ${money(-r.net)} back.`); };
@@ -274,7 +315,8 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   return (
     <div style={S.app}>
       <Hud game={game} onQuit={() => setPaused(true)} setRate={setRate} skip={skip}
-        audio={audio} cue={cue} onToggleAudio={onToggleAudio} onAudioLevel={onAudioLevel} />
+        audio={audio} cue={cue} onToggleAudio={onToggleAudio} onAudioLevel={onAudioLevel}
+        onToggleSfx={onToggleSfx} onSfxLevel={onSfxLevel} />
       <div style={S.main}>
         <div style={S.stage}>
           {surface
@@ -334,14 +376,15 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLevel }) {
+function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLevel, onToggleSfx, onSfxLevel }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
   const where = transit ? `en route to ${siteOf(game, game.leg.to)?.name}` : `docked at ${here?.name}`;
   return (
     <header style={S.hud}>
-      <MusicControl audio={audio} cue={cue} onToggle={onToggleAudio} onLevel={onAudioLevel} />
+      <MusicControl audio={audio} cue={cue} onToggle={onToggleAudio} onLevel={onAudioLevel}
+        onToggleSfx={onToggleSfx} onSfxLevel={onSfxLevel} />
       <div>
         <div style={S.capName}>{p.name}</div>
         <div style={S.sub}>{p.ship.name} · {where}</div>
@@ -385,8 +428,11 @@ function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLe
  * playing is a nice thing to be able to find out and a distracting thing to be
  * told continuously.
  */
-function MusicControl({ audio, cue, onToggle, onLevel }) {
+function MusicControl({ audio, cue, onToggle, onLevel, onToggleSfx, onSfxLevel }) {
   const [open, setOpen] = useState(false);
+  // TWO FADERS, because they are two buses (see audio.js). An alert has to stay
+  // audible when the pads are turned down, and somebody who wants the music and
+  // not the clicks — or the clicks and not the music — can have either.
   return (
     <div style={S.musicWrap} onMouseLeave={() => setOpen(false)}>
       <button onClick={onToggle} onFocus={() => setOpen(true)} onMouseEnter={() => setOpen(true)}
@@ -395,12 +441,26 @@ function MusicControl({ audio, cue, onToggle, onLevel }) {
         aria-label={audio.on ? "Turn music off" : "Turn music on"}>
         {audio.on ? "♪" : "♪̸"}
       </button>
-      {open && audio.on && (
+      {open && (
         <div style={S.musicPop}>
-          {cue && <div style={S.musicCue}>{cue.name}</div>}
-          <input type="range" min="0" max="1" step="0.05" value={audio.level}
-            onChange={(e) => onLevel(Number(e.target.value))}
-            aria-label="Music volume" style={{ width: 110 }} />
+          {audio.on && (
+            <>
+              {cue && <div style={S.musicCue}>{cue.name}</div>}
+              <input type="range" min="0" max="1" step="0.05" value={audio.level}
+                onChange={(e) => onLevel(Number(e.target.value))}
+                aria-label="Music volume" style={{ width: 110 }} />
+            </>
+          )}
+          <label style={S.sfxRow}>
+            <input type="checkbox" checked={audio.sfxOn !== false}
+              onChange={() => onToggleSfx?.()} aria-label="Sound effects" />
+            <span>Effects</span>
+          </label>
+          {audio.sfxOn !== false && (
+            <input type="range" min="0" max="1" step="0.05" value={audio.sfxLevel ?? 0.7}
+              onChange={(e) => onSfxLevel?.(Number(e.target.value))}
+              aria-label="Sound effects volume" style={{ width: 110 }} />
+          )}
         </div>
       )}
     </div>
@@ -1199,6 +1259,7 @@ const S = {
   musicWrap: { position: "relative" },
   musicPop: { position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 30, background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 8px 26px rgba(0,0,0,0.5)" },
   musicCue: { fontSize: 11, color: "var(--gold)", whiteSpace: "nowrap", letterSpacing: 0.4 },
+  sfxRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap", cursor: "pointer" },
   capName: { fontSize: 16, fontWeight: 700, letterSpacing: 0.3 },
   sub: { fontSize: 12, color: "var(--muted)" },
   hudStats: { display: "flex", gap: 16, marginLeft: "auto" },
