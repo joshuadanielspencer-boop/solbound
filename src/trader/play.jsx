@@ -89,6 +89,29 @@ const TRUE_AU_AT_R = 38.24;          // AU that maps to R — the semi-minor axi
 // run away underneath them. Slower reads as a world ticking over rather than a
 // clock being hurried.
 const DOCK_RATE = 1 / 3;
+
+/**
+ * DOES THIS PLAYER WANT LESS MOVEMENT? Live, not read once: someone can change
+ * the system setting with the game open, and macOS "Reduce motion" is a switch
+ * people reach for precisely when something on screen is bothering them.
+ *
+ * `addEventListener` on a MediaQueryList is the modern spelling; Safari before
+ * 14 only had `addListener`, so both are wired and whichever exists is used.
+ */
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+    const on = (e) => setReduced(e.matches);
+    mq.addEventListener ? mq.addEventListener("change", on) : mq.addListener(on);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on);
+    };
+  }, []);
+  return reduced;
+}
 const money = (n) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (t) => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtDur = (d) => d < 60 ? `${Math.round(d)} days` : d < 700 ? `${(d / 30.44).toFixed(0)} months` : `${(d / 365.25).toFixed(1)} years`;
@@ -153,8 +176,26 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   // is WAGES, which accrue per day, so dithering is free with an empty ship and
   // expensive with a crew aboard. The Wait button on the Dock is how you spend
   // time deliberately; this is just the world turning over.
-  const clockOn = transit ? RATES[game.rateIdx].days > 0 : true;
-  const stepDays = transit ? RATES[game.rateIdx].days : DOCK_RATE;
+  //
+  // ⚠ EXCEPT FOR SOMEONE WHO ASKED THEIR SYSTEM FOR LESS MOTION. index.css has
+  // honoured prefers-reduced-motion since the front door was built, but it can
+  // only reach CSS animations and transitions — and the orrery does not use
+  // either. Its motion is this setInterval advancing the clock and React
+  // re-rendering SVG positions, which the media query never sees. So the one
+  // screen in the game that never stops moving was the one screen the
+  // accessibility rule missed entirely.
+  //
+  // The fix is deliberately narrow. It does NOT overturn the decision above for
+  // everybody; it applies only to a player whose own operating system has
+  // already said they want less movement, and it holds only the DOCKED clock —
+  // in transit the rate buttons already include a pause, so that case was
+  // always under the player's hand. Held time is stated in the HUD with a way
+  // to release it, because a clock that silently refuses to move is a bug.
+  const reduced = usePrefersReducedMotion();
+  const [letItRun, setLetItRun] = useState(false);
+  const holdInPort = reduced && !letItRun && !transit;
+  const clockOn = transit ? RATES[game.rateIdx].days > 0 : !holdInPort;
+  const stepDays = transit ? RATES[game.rateIdx].days : (holdInPort ? 0 : DOCK_RATE);
   useEffect(() => {
     if (stopped || !clockOn) return;
     let last = performance.now();
@@ -352,6 +393,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   return (
     <div style={S.app}>
       <Hud game={game} onQuit={() => setPaused(true)} setRate={setRate} skip={skip}
+        held={holdInPort} onRelease={() => setLetItRun(true)}
         audio={audio} cue={cue} onToggleAudio={onToggleAudio} onAudioLevel={onAudioLevel}
         onToggleSfx={onToggleSfx} onSfxLevel={onSfxLevel} />
       <div style={S.main}>
@@ -420,7 +462,7 @@ const errMsg = (e) => ({
 // ---------------------------------------------------------------------------
 // HUD — now with the clock
 // ---------------------------------------------------------------------------
-function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLevel, onToggleSfx, onSfxLevel }) {
+function Hud({ game, onQuit, setRate, skip, held, onRelease, audio, cue, onToggleAudio, onAudioLevel, onToggleSfx, onSfxLevel }) {
   const p = game.player;
   const transit = game.status === "transit";
   const here = siteOf(game, p.at);
@@ -447,6 +489,18 @@ function Hud({ game, onQuit, setRate, skip, audio, cue, onToggleAudio, onAudioLe
         )}
         {dailyCost(game) > 0 && <Hstat label="Wages" value={`${money(dailyCost(game))}/day`} />}
         <Hstat label="Date" value={fmtDate(game.t)} />
+        {/* SAY IT, RATHER THAN JUST DOING IT. A held clock beside a date that
+            never changes is indistinguishable from a frozen game, and the
+            player who most needs this is the least likely to guess why. */}
+        {held && (
+          <div style={S.heldNote}>
+            <span style={S.heldLabel}>Time held</span>
+            <button style={S.heldBtn} onClick={onRelease}
+              title="Let the clock run in port. Your system asked for reduced motion, so it is holding.">
+              reduced motion · let it run
+            </button>
+          </div>
+        )}
       </div>
       {transit ? (
         <div style={S.clock}>
@@ -1340,6 +1394,10 @@ const S = {
   capName: { fontSize: 16, fontWeight: 700, letterSpacing: 0.3 },
   sub: { fontSize: 12, color: "var(--muted)" },
   hudStats: { display: "flex", gap: 16, marginLeft: "auto" },
+  heldNote: { display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" },
+  heldLabel: { fontSize: 10, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)" },
+  heldBtn: { background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer",
+    fontFamily: "inherit", fontSize: 12, color: "var(--gold)", textDecoration: "underline" },
   hlabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)" },
   hvalue: { fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
   quit: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 },
