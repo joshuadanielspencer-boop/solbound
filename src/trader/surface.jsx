@@ -35,7 +35,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { nightSpans } from "../illumination.js";
 import { surfaceReport, nightOutlines } from "../surface.js";
-import { Screen, StatStrip, Footnote } from "./ui.jsx";
+import { Screen, StatStrip, Footnote, Lesson } from "./ui.jsx";
 
 const VBW = 1350, VBH = 1000;
 const W = 1120, H = 560;
@@ -260,6 +260,20 @@ export function SurfacePanel({ game, bodyId, onBack }) {
           {" "}sees no sunrise at all. That is not weather; it is the axial tilt, and it is why a base
           near a pole is a decision about power before it is anything else.
         </div>
+      )}
+      {rep.rotationKnown && rep.seasonAmplitudeDeg !== null && (
+        <Lesson id="axialTilt">
+          {rep.name} leans <b>{rep.seasonAmplitudeDeg.toFixed(1)}°</b> to its orbit, and that lean
+          is what makes seasons: the hemisphere tipped toward the Sun gets summer, and near the
+          poles the Sun can stay down for months. Earth leans 23.4°.
+        </Lesson>
+      )}
+      {rep.rotationKnown && (
+        <Lesson id="terminator">
+          The ☀/☾ on each port below is which side of the terminator it sits — the line between
+          day and night, sweeping round once per solar day. Along it the Sun is low and relief
+          shows; at noon a landscape washes flat.
+        </Lesson>
       )}
 
       {!rep.rotationKnown && (

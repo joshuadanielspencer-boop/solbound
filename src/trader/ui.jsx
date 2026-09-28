@@ -32,6 +32,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSfx } from "./sfx.jsx";
+import { CONCEPTS } from "../data/concepts.js";
 
 // The three formatters every screen needs. They lived in play.jsx and are now
 // shared, because a panel that formats money differently from the HUD above it
@@ -250,6 +251,39 @@ export const PrimaryButton = ({ children, disabled, onClick, tone }) => {
 /** One line of explanation, for the bottom of a screen. Never more than two. */
 export const Footnote = ({ children }) => <div style={S.footnote}>{children}</div>;
 
+/**
+ * A LESSON — a piece of real astronomy, called by its name, on the screen where
+ * it is costing the player something. data/concepts.js explains why these
+ * exist; this is only how one looks.
+ *
+ * It is a footnote with a name on the front and, where a sandbox shows the
+ * thing working, a way to the Codex. The Codex opens in a NEW TAB on purpose:
+ * the game is a hash route, so following a link in the same tab would unmount
+ * it mid-session for a page about the rocket equation.
+ *
+ * `children` replace the generic sentence with the screen's own live numbers
+ * ("aerobraking shed 3.2 km/s of THIS trip"); the name and the link stay. No
+ * hover, no bubble — a name you have to hunt for is not a name you learned.
+ */
+export function Lesson({ id, children }) {
+  const c = CONCEPTS[id];
+  if (!c) return null;
+  return (
+    <div style={S.lesson} data-lesson={id}>
+      <span style={S.lessonName}>{c.name}</span>{" "}
+      <span>{children ?? c.text}</span>
+      {c.codex && (
+        <>{" "}
+          <a href={`#/${c.codex}`} target="_blank" rel="noopener" style={S.lessonLink}
+            aria-label={`${c.name} in the Codex (opens in a new tab)`}>
+            → Codex
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
+
 const S = {
   screen: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0 },
   head: { display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px 10px", borderBottom: "1px solid var(--line)", flexShrink: 0 },
@@ -295,6 +329,11 @@ const S = {
   primaryQuiet: { background: "var(--panel-2)", color: "var(--text)", borderWidth: "1px", borderStyle: "solid", borderColor: "var(--line)", fontWeight: 600 },
 
   footnote: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 4 },
+  // A lesson reads as a footnote with a rule down its left, so it is visibly a
+  // different kind of line from "the tank is full" without shouting.
+  lesson: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 4, padding: "2px 0 2px 10px", borderLeft: "2px solid rgba(242,180,65,0.55)" },
+  lessonName: { color: "var(--gold)", fontWeight: 700, letterSpacing: 0.2 },
+  lessonLink: { color: "var(--gold)", textDecoration: "none", whiteSpace: "nowrap", fontSize: 11 },
 };
 
 export { S as PANEL_STYLES };

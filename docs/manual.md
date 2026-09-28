@@ -239,3 +239,27 @@ run is worth keeping.
 *Every place in this game is real, and every advantage and disadvantage comes
 from what is actually there — the ice, the radiation, the sunlight, the
 geometry. Nothing is invented except the people.*
+
+### The words
+
+Every piece of real astronomy the game runs on, by name. Each of these is also
+said once, in the game, on the screen where it is costing you something — this
+is the same list in one place. `→ Codex` means the sandbox behind `#/codex`
+shows it working.
+
+| | |
+|---|---|
+| **Hohmann transfer** | The cheapest path between two orbits: half an ellipse that touches both. One burn to leave, one to arrive, coasting between. Also the slowest — Earth to Mars is about 259 days. Every trip flies one. Walter Hohmann, 1925. → Codex |
+| **Δv (delta-v)** | The total change in speed a trip demands, in km/s. The *real* distance between two places. Mercury is near and expensive; Ceres is far and cheap. → Codex |
+| **Aerobraking** | Arriving somewhere with an atmosphere, you shed speed against the air instead of burning to lose it. Why Mars and Venus are cheaper to reach than nearer airless rocks. |
+| **The rocket equation** | Propellant has to push the propellant you have not burned yet, so fuel grows *exponentially* with Δv. Twice the Δv is far more than twice the fuel. Why a heavier hold reaches fewer ports. Tsiolkovsky, 1903. → Codex |
+| **Specific impulse** | How much push a drive gets from each kilogram of propellant, in seconds. Chemical drives sit in the 300s–400s; nuclear-thermal roughly doubles that. The one number a refit changes. → Codex |
+| **Synodic period** | How long until two planets return to the same arrangement — the inner one lapping the outer. Earth laps Mars every 780 days, so the cheap moment comes round about every 26 months. → Codex |
+| **Kepler's third law** | The wider an orbit, the slower — and not in proportion: the square of the year grows with the cube of the distance. Mars is 1.5× further out and takes 1.9 years to go round. |
+| **The inverse-square law** | Sunlight falls with the square of distance: twice as far, a quarter as bright. Under half of Earth's at Mars; about 1/27th at Jupiter; 1/90th at Saturn. Past the Belt, solar stops being an option. |
+| **Light-time** | Nothing travels faster than light, including a price. Mars is 3–22 minutes away by radio; Jupiter up to 52. Everything you know about a distant port is at least that stale. |
+| **Solar conjunction** | When the Sun sits between two planets, radio between them is drowned. Earth and Mars lose each other for about two weeks every 26 months. |
+| **Axial tilt** | A world spins on an axis that leans to its orbit; the lean makes seasons, and near the poles the Sun can stay down for months. Earth 23.4°, Mars 25.2°, Mercury almost none. → Codex |
+| **The terminator** | The day/night line, sweeping round once per solar day. Along it shadows are long and relief shows; at noon a landscape washes flat. Why a lunar-pole base can stand in sun beside a crater floor shadowed for about two billion years. → Codex |
+| **Boil-off** | Liquid hydrogen must be kept below −253 °C and no tank is a perfect flask, so some boils away every day. Methane keeps at −162 °C — the storable choice. |
+| **ISRU** | In-situ resource utilisation: making what you need where you stand instead of shipping it. Propellant from lunar ice, oxygen from regolith, methane from Martian air. Every plant is one thing fewer to ship. → Codex |

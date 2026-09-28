@@ -163,7 +163,7 @@ export function travelCost(game, destId) {
   const stats = fittedStats(game.player.ship.hull, game.player.ship.modules);
   const wetDry = stats.dryTonnes + cargoUsed(game.player);   // what must be pushed
 
-  let dvKms, days;
+  let dvKms, days, aerobrakedKms = 0;
   if (from.system === to.system) {
     dvKms = INTRA_SYSTEM_DV;
     days = INTRA_SYSTEM_DAYS;
@@ -181,13 +181,16 @@ export function travelCost(game, destId) {
     // a route's cost is predictable rather than swinging with the date — the
     // launch-window trade can return later as a discount, not a confusing tax.
     dvKms = Math.abs(h.dv1) + Math.abs(h.dv2) * (1 - brake);
+    // What the atmosphere took off the bill, so the screen can SAY so — the
+    // discount was silent, and a discount nobody is told about teaches nothing.
+    aerobrakedKms = Math.abs(h.dv2) * brake;
     days = h.days;
   }
 
   const fuelTonnes = propellantFor(wetDry, dvKms, drive.isp);
   const tankMax = stats.fuelTonnes;
   return {
-    dvKms, days, fuelTonnes,
+    dvKms, days, fuelTonnes, aerobrakedKms,
     reachable: fuelTonnes <= tankMax,
     reason: fuelTonnes > tankMax
       ? `The tank holds ${tankMax.toFixed(0)} t; this trip needs ${fuelTonnes.toFixed(0)} t of propellant. Carry less, refit a bigger tank, or fly a shorter hop.`

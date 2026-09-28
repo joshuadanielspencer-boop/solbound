@@ -91,6 +91,75 @@ of this file is the detail that block points at.
 
 ---
 
+## The words — 2026-09-28
+
+Joshua asked whether the game ever calls its mechanics by their scientific
+names, with enough context to learn what they are. A grep of every player-facing
+file (`src/trader`, `src/labs`, `docs/manual.md`) answered it:
+
+| | UI | manual |
+|---|---|---|
+| Hohmann | **0** | 0 |
+| Kepler | 0 | 0 |
+| aerobraking | **0** — applied silently | 0 |
+| synodic | 0 (2, both in the Codex) | 0 |
+| inverse-square | 0 | 0 |
+| rocket equation | 4, well | 2 |
+
+**The physics was load-bearing and almost entirely unnamed.** A player flew
+Hohmann transfers for fifty hours and was never told the word.
+
+⚠ **`docs/astronomy.md` did not catch this, and the reason matters.** Its one
+rule — "a fact you had to USE is a mechanic; a fact you READ is a card" — grades
+whether a fact is *used* and never whether it is *named*. That rule is right
+about the failure it guards against and blind to this one. An unnamed mechanic
+teaches a skill, not a concept: you cannot look up a thing you have no word for.
+Addendum written into astronomy.md §9.
+
+### What landed
+
+- **`src/data/concepts.js`** — fourteen concepts as data (rule 1), each a name,
+  a few sentences of FACT (rule 2 — textbook figures, the engine's own numbers,
+  dates from the papers themselves), and the Codex route that shows it working.
+- **`Lesson`** in `ui.jsx` — a footnote with the name on the front and a
+  `→ Codex` link that opens in a **new tab**, because the game is a hash route
+  and following a link in the same tab would unmount it mid-session.
+- **Wired at the moment each concept costs something**, not in a glossary tab:
+  Hohmann + aerobraking + a new **Δv stat** on the destination screen (and only
+  for interplanetary legs — a same-system hop is a flat charge with no orbit to
+  teach, and a test asserts it is NOT called a Hohmann transfer); rocket equation
+  + boil-off on Propellant; specific impulse on Drive; inverse-square + ISRU on
+  Build here; light-time and solar conjunction on the intel line; synodic period
+  + Kepler's third law on a planet's atlas, **computed from the J2000 elements**
+  (Mars: 1.5 AU, 1.9 years, 780 days — the textbook figure, and a test pins it
+  to ±1 day); axial tilt + terminator on the surface panel.
+- `travelCost()` now returns **`aerobrakedKms`** so the screen can say what the
+  atmosphere took off the bill. The discount was silent; a silent discount
+  teaches nothing.
+- The transfer lab now says "synodic period" where it said "this geometry".
+- `docs/manual.md` §7 gained **"The words"** — the same fourteen in one table.
+- `test/concepts.test.js` — 13 tests. 570 total.
+
+**A mistake caught by its own test:** the synodic figure first rendered as
+"2.1 years" because a formatting threshold turned 780 days into years. Every
+Earth-synodic period is between 1 and 2.2 years and is always quoted in days;
+the threshold is gone.
+
+### Also since the last entry (2026-09-23, commit `fb3a033`)
+
+A cleanup batch: README rewritten for SOLBOUND (it described the survey game,
+zero mentions of SOLBOUND); 26 Space Trader reference screenshots untracked from
+the public repo; a desktop-width card for phones (an overlay, not a replacement
+— the first version unmounted the game on resize and the test caught it);
+prefers-reduced-motion now reaches the docked clock, which CSS never could.
+
+### Still open
+
+Everything in "Open decisions" below, unchanged. The guided tour (scoped, not
+built) should reuse these sentences rather than write its own.
+
+---
+
 ## Production chains, a UI smoke test, and three data fixes — 2026-07-28 (third)
 
 The session where the campaign's spine went in, and where the test suite finally

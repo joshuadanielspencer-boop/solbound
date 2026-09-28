@@ -33,12 +33,14 @@
 
 import { useState } from "react";
 import {
-  Screen, NavButton, InfoRow, RowMain, RowValue, PricePair, Tag, StatStrip, PrimaryButton, Footnote,
+  Screen, NavButton, InfoRow, RowMain, RowValue, PricePair, Tag, StatStrip, PrimaryButton, Footnote, Lesson,
   money, fmtDate, fmtDur,
 } from "./ui.jsx";
 import { siteOf, techOf, govOf, TECH_LEVELS } from "../data/sites.js";
 import { SYSTEM_BY_ID } from "../data/bodies.js";
 import { COMMODITY_BY_ID, TIERS } from "../data/commodities.js";
+import { ELEMENTS } from "../ephemeris.js";
+import { synodicDays, periodYears } from "../transfer.js";
 import { listing } from "../market.js";
 import { buyPrice, sellPrice, cargoUsed, cargoCapacity, cargoFree } from "../player.js";
 import { factionAt } from "../factions.js";
@@ -266,16 +268,18 @@ function FuelScreen({ game, back, actions }) {
       )}
       {fp && freeT <= 0.5 && <Footnote>The tank is full.</Footnote>}
       {perMonth > 0.01 && (
-        <Footnote>
+        <Lesson id="boilOff">
           ❄ This drive runs on hydrogen and is boiling off about <b>{perMonth.toFixed(1)} t a month</b>
           {stats?.cryo ? ", even with the cryocooler running" : " — nothing aboard is chilling it"}. It goes on
-          wherever you are.
-        </Footnote>
+          wherever you are. Hydrogen has to be kept below −253 °C and no tank is a perfect flask;
+          methane keeps at −162 °C, which is why it is the storable one.
+        </Lesson>
       )}
-      <Footnote>
+      <Lesson id="rocketEquation">
         A fuller hold reaches fewer ports: mass is what the rocket equation charges for, so
-        cargo and range trade against each other on every trip.
-      </Footnote>
+        cargo and range trade against each other on every trip — and the charge is exponential
+        in Δv, not proportional. Tsiolkovsky, 1903.
+      </Lesson>
     </Screen>
   );
 }
@@ -353,9 +357,17 @@ function IndustryScreen({ game, back, actions }) {
   const options = buildOptions(game, siteId);
   const campaign = umbilicalReport(game);
 
+  // The one line that says WHY the sunlight number in the header is what it is.
+  // "1/27th" reads; "0.037×" does not.
+  const lightWord = light >= 0.5 ? `${Math.round(light * 100)}%` : `about 1/${Math.round(1 / light)}th`;
   return (
     <Screen title="Build here" onBack={back}
       hint={`${site.name} · sunlight ${light >= 0.1 ? `${light.toFixed(2)}×` : `${(light * 100).toFixed(1)}%`} of Earth's`}>
+      <Lesson id="inverseSquare">
+        Sunlight here is <b>{lightWord}</b> of Earth's, because sunlight falls with the square of
+        distance from the Sun — twice as far, a quarter as bright. A solar farm delivers its rating
+        times that number, which is why the array that runs a plant at Luna cannot run one at Titan.
+      </Lesson>
       <StatStrip items={[
         { label: "Power", value: `${supply} / ${draw} kW`,
           tone: draw > supply ? "hot" : supply ? "ok" : undefined,
@@ -425,6 +437,7 @@ function IndustryScreen({ game, back, actions }) {
           number, and not your balance, is what the campaign is for.
         </Footnote>
       )}
+      <Lesson id="isru" />
     </Screen>
   );
 }
@@ -544,12 +557,14 @@ function DriveScreen({ game, back, actions }) {
                 onClick={() => actions.buyDrive(d.id)}>{net >= 0 ? money(net) : `+${money(-net)}`}</button>}
         </InfoRow>
       ))}
-      <Footnote>
-        A refit is the only purchase that changes what the map <i>means</i> — the rocket equation
-        charges exponentially, and an era doubles the base you are exponentiating against.
+      <Lesson id="specificImpulse">
+        The "<b>{current.isp} s</b> exhaust" on each row is its specific impulse — how much push a
+        drive gets from each kilogram of propellant, the higher the better. A refit is the only
+        purchase that changes what the map <i>means</i>, because the rocket equation raises this
+        number to a power: an era that doubles it does far more than halve the fuel.
         {current.boilOffPerDay > 0 && <> A year of coasting leaves <b>{Math.round(yearKept * 100)}%</b> of
           whatever is still in the tank.</>}
-      </Footnote>
+      </Lesson>
       {/* The ion drive and the fusion torch are no longer listed — nobody sells
           them, and an unbuyable row is not a choice. The reasons are worth
           keeping, because they are two different kinds of "no". */}
@@ -805,6 +820,8 @@ export function CoursePreview({ game, siteId, onGo }) {
     <Screen title={site.name} hint={`${SYSTEM_BY_ID[site.system]?.name} · pointing at it, not committed to it`}>
       {cost ? (
         <StatStrip items={[
+          { label: "Δv", value: `${cost.dvKms.toFixed(1)} km/s`,
+            hint: "The speed change this trip demands. The real distance between two places." },
           { label: "Propellant", value: `${cost.fuelTonnes.toFixed(1)} t`,
             tone: cost.reachable ? (cost.enoughFuel ? "ok" : "hot") : "hot" },
           { label: "Time", value: fmtDur(cost.days) },
@@ -853,6 +870,7 @@ export function CoursePreview({ game, siteId, onGo }) {
 
 function DestinationScreen({ game, entry, back, actions }) {
   const { site, cost } = entry;
+  const interplanetary = siteOf(game, game.player.at)?.system !== site.system;
   const gov = govOf(site);
   const owed = controlledCargo(game.player, gov);
   const banned = illegalCargo(game.player, gov);
@@ -868,6 +886,8 @@ function DestinationScreen({ game, entry, back, actions }) {
   return (
     <Screen title={site.name} onBack={back} hint={SYSTEM_BY_ID[site.system]?.name}>
       <StatStrip items={[
+        { label: "Δv", value: `${cost.dvKms.toFixed(1)} km/s`,
+          hint: "The speed change this trip demands. The real distance between two places." },
         { label: "Propellant", value: `${cost.fuelTonnes.toFixed(1)} t`, tone: ok ? undefined : "hot" },
         { label: "Flight time", value: fmtDur(cost.days) },
         { label: "Wages", value: dailyCost(game) ? money(tripCost(game, cost.days)) : "—" },
@@ -875,6 +895,25 @@ function DestinationScreen({ game, entry, back, actions }) {
       ]} />
 
       {!cost.reachable && <Footnote><b style={{ color: "var(--hot)" }}>{cost.reason}</b></Footnote>}
+
+      {/* THE WORDS FOR WHAT THIS SCREEN IS QUOTING. An interplanetary leg is a
+          Hohmann transfer and the number above is its Δv; if the far end has an
+          atmosphere, part of that bill was never charged. Same-system hops are
+          a flat charge and get no lesson, because there is no orbit to teach. */}
+      {interplanetary && (
+        <Lesson id="hohmann">
+          This is a Hohmann transfer — half an ellipse from one orbit to the other, one burn to
+          leave and one to arrive, and <b>{fmtDur(cost.days)}</b> of coasting between. It is the
+          cheapest path there is, and the slowest. Walter Hohmann worked it out in 1925.
+        </Lesson>
+      )}
+      {cost.aerobrakedKms > 0.05 && (
+        <Lesson id="aerobraking">
+          {SYSTEM_BY_ID[site.system]?.name} has an atmosphere, so you brake against it instead of
+          burning: <b>{cost.aerobrakedKms.toFixed(1)} km/s</b> of this trip's arrival is shed for
+          free. That is why it is cheaper to reach than an airless rock that is nearer.
+        </Lesson>
+      )}
 
       {banned.any && (
         <InfoRow info={`Caught, you lose the cargo and about ${money(banned.fine)} — and it goes on your record. That is the trade: this is also where it is worth most.`}>
@@ -891,7 +930,11 @@ function DestinationScreen({ game, entry, back, actions }) {
       )}
 
       {freshness?.key === "occluded" ? (
-        <Footnote>☀ <b style={{ color: "var(--hot)" }}>Solar conjunction.</b> {freshness.note}</Footnote>
+        <Lesson id="conjunction">
+          ☀ {freshness.note} The Sun is between you and this port, and radio that has to pass
+          close to it is drowned out. Earth and Mars lose each other this way for about two
+          weeks every 26 months; real missions go quiet and wait.
+        </Lesson>
       ) : (
         <>
           {carrying && cargo && (
@@ -914,7 +957,12 @@ function DestinationScreen({ game, entry, back, actions }) {
           {ok ? `Launch — burn ${cost.fuelTonnes.toFixed(1)} t` : "Not enough propellant aboard"}
         </PrimaryButton>
       )}
-      <Footnote>{freshness?.note}</Footnote>
+      {/* The intel line is where light-time is actually costing something, so
+          it gets the name; "live" intel from a port in the same system has
+          nothing to teach and gets the plain note. */}
+      {freshness?.key === "delayed" || freshness?.key === "stale"
+        ? <Lesson id="lightLag">{freshness.note} Nothing travels faster than light, including a price.</Lesson>
+        : <Footnote>{freshness?.note}</Footnote>}
     </Screen>
   );
 }
@@ -999,9 +1047,23 @@ export function SystemAtlas({ game, systemId, onBack }) {
   const hasLab = fittedStats(game.player.ship.hull, game.player.ship.modules).canSurvey;
   if (!group) return null;
   const charted = group.places.filter((x) => x.revealed).length;
+  // WHAT THE MAP IS SHOWING WHEN EARTH CATCHES THIS PLANET. Semi-major axes,
+  // not today's radii — transfer.js learned the hard way that a synodic period
+  // fed instantaneous distances swings by months depending on when you ask.
+  // Only for a planet with an orbit of its own; the Belt and Earth get nothing.
+  const lap = orbitLesson(group.system);
   return (
     <Screen title={group.system.name} onBack={onBack}
       hint={`${charted} of ${group.places.length} places charted here · ${known}/${total} in all`}>
+      {lap && (
+        <Lesson id="synodic">
+          {group.system.name} is <b>{lap.au.toFixed(1)} AU</b> out and its year is{" "}
+          <b>{lap.years.toFixed(1)} Earth years</b> — a wider orbit is a slower one, by Kepler's
+          third law. So Earth {lap.inner ? "laps it" : "is lapped by it"} every{" "}
+          <b>{lap.synodic}</b>: the synodic period, and the rhythm the cheap moment to fly there
+          comes round on. That is what you are watching on the map.
+        </Lesson>
+      )}
       {group.places.map(({ place, revealed, feature, site, visited }) => (
         <InfoRow key={place.id}
           info={revealed ? place.why
@@ -1024,6 +1086,24 @@ export function SystemAtlas({ game, systemId, onBack }) {
       </Footnote>
     </Screen>
   );
+}
+
+/**
+ * The numbers the synodic lesson quotes, from the same J2000 elements the
+ * orrery flies on. Null for anything without its own heliocentric orbit, and
+ * for Earth, which cannot lap itself.
+ */
+function orbitLesson(system) {
+  const key = system?.ephemerisKey;
+  if (!key || key === "earth" || !ELEMENTS[key] || !ELEMENTS.earth) return null;
+  const au = ELEMENTS[key].a[0], earthAu = ELEMENTS.earth.a[0];
+  const days = synodicDays(earthAu, au);
+  if (!Number.isFinite(days)) return null;
+  // Always days. Every planet's synodic period with Earth sits between one and
+  // 2.2 years, and 780 days is how the Mars figure is quoted everywhere; a
+  // threshold that turned it into "2.1 years" hid the textbook number.
+  const synodic = `${Math.round(days)} days`;
+  return { au, years: periodYears(au), synodic, inner: au > earthAu };
 }
 
 // ---------------------------------------------------------------------------

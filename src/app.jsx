@@ -26,7 +26,9 @@ import DayNightLab from "./labs/daynight.jsx";
 import TransferLab from "./labs/transfer.jsx";
 import Trader from "./trader/index.jsx";
 
-const ROUTES = {
+// Exported so data/concepts.js can be held against it: every lesson that says
+// "→ Codex" has to point at a sandbox that exists.
+export const ROUTES = {
   play:     { comp: Trader,      title: "SOLBOUND — the trade game", blurb: "Take command of a captain and one ship. Buy where a good is cheap, cross real orbits at a real fuel-and-time cost, sell where it's dear. The Space Trader floor, on the real solar system.", emoji: "🚀", tag: "playable" },
   fleet:    { comp: Wanderer,    title: "The fleet (survey demo)", blurb: "The earlier build: fly three ships across a live solar system with launch windows, real transfer orbits, the day/night terminator, and the survey game.", emoji: "🛰", tag: "demo" },
   rocket:   { comp: RocketLab,   title: "The rocket equation", blurb: "Drag the velocity change and watch the fuel cost explode. Why 'far' and 'hard' are different words — and why the torch drive is fiction.", emoji: "🧮", tag: "physics" },

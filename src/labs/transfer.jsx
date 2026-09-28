@@ -61,7 +61,8 @@ export default function TransferLab() {
                     Right now it's off by <b>{Math.abs(c.offByDeg).toFixed(0)}°</b>.
                   </p>
                   <p style={{ ...S.note, marginBottom: 0 }}>
-                    This geometry comes round every <b>{fmtDur(c.synodicDays)}</b>.
+                    This geometry comes round every <b>{fmtDur(c.synodicDays)}</b> — the <b>synodic
+                    period</b>, the time for the inner planet to lap the outer one.
                   </p>
                 </div>
               </div>

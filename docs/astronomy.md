@@ -527,6 +527,30 @@ Same game underneath. Bigger numbers, and a longer view.
 
 ---
 
+## 9. Addendum (2026-09-28) — the grade this audit was missing
+
+Everything above grades whether a fact is **used**. It never asks whether a
+fact is **named**, and the game passed at ~60% while naming almost nothing:
+a grep of every player-facing file found "Hohmann" zero times, "Kepler" zero,
+"aerobraking" zero, "synodic" zero, "inverse-square" zero — every one of them
+a MECHANIC by §1's own table.
+
+The rule in §1 is right about the failure it guards against: a paragraph of
+true astronomy on a card is not teaching. But an unnamed mechanic teaches a
+*skill*, not a *concept*. A player who learns to wait for the cheap moment
+without ever hearing "synodic period" cannot look it up, cannot transfer it,
+and will not recognise it in the textbook this audit is measured against.
+
+So a fourth criterion, and it is a gate on the other two, not a grade of its
+own: **a MECHANIC or INSTRUMENT counts only once it is called by its name, on
+the screen where it is costing the player something.** Not a glossary tab.
+Once, in a sentence, beside the number it explains.
+
+`src/data/concepts.js` is the list; `Lesson` in `src/trader/ui.jsx` is how one
+looks; `test/concepts.test.js` holds each to its screen. Fourteen so far, all
+from Semester 1. Every §2 and §3 row above should be re-read with this gate in
+mind before it is called built.
+
 ## Sources
 
 - [OpenStax *Astronomy 2e*, via LibreTexts](https://phys.libretexts.org/Bookshelves/Astronomy__Cosmology/Astronomy_2e_(OpenStax)) — the 31-chapter spine used throughout
