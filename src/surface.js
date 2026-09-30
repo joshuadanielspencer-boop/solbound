@@ -128,6 +128,8 @@ function portReport(site, bodyId, t) {
     id: site.id,
     name: site.name,
     iauName: c.iauName,
+    origin: c.origin || null,     // who the IAU feature honours — the gazetteer's words
+    iau: c.iau || null,           // its feature id there: the citation
     lat: c.lat,
     lonE: c.lonE,
     // Unknown rotation is reported as unknown, never as "in daylight". The

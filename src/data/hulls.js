@@ -113,7 +113,13 @@ export const MODULES = [
     note: "More hold, at the cost of a bay you could have used for range or gear." },
   { id: "tank", name: "Drop tank", emoji: "⛽", slot: "gadget", price: 20000, adds: { fuelTonnes: 25 },
     note: "More fuel — more reach, or the same reach with heavier cargo." },
+  // ⚠ NOT FOR SALE, because it does nothing. `canMine` is written here and read
+  // NOWHERE — grepped 2026-09-30, and it had been true since the module was
+  // added. A $60,000 gadget that takes a bay and has no effect is a trap, not a
+  // feature. The entry stays so a save with one fitted still loads and can
+  // remove it; the shop skips it until prospecting is a mechanic (decisions.md).
   { id: "miner", name: "Mining rig", emoji: "⛏", slot: "gadget", price: 60000, adds: { canMine: true },
+    forSale: false,
     note: "Extract ice or ore from a body you've surveyed. The first step off the trade treadmill." },
   { id: "lab", name: "Survey lab", emoji: "🔬", slot: "gadget", price: 55000, adds: { canSurvey: true },
     note: "Prospect a site to reveal its resources — you cannot build where you have not surveyed." },

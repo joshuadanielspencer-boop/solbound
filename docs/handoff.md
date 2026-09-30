@@ -8,14 +8,15 @@ of this file is the detail that block points at.
 ## Prompt for the next session
 
 > You're continuing work on **SOLBOUND**, a single-player economic-strategy game
-> set in the real solar system. Repo `~/Dropbox/Solbound` (its own git repo, a
+> set in the real solar system. Repo `~/Dropbox/Miscellaneous/Claude Code Projects/Solbound` (its own git repo, a
 > sibling of Shutterbug, no shared code). **LIVE and fully pushed** at
 > https://joshuadanielspencer-boop.github.io/solbound/ — push to `main`
 > auto-deploys via GitHub Actions (`npm test` gates it). `~/bin/gh` is authed.
 >
 > **Read first, in order:** `docs/design.md` (master design — §12 lists locked
 > decisions, §16 the accuracy policy), `docs/handoff.md` (this file: "Where
-> things stand", "Working agreements", "Open decisions"), `docs/astronomy.md`
+> things stand", "Working agreements") and `docs/decisions.md` (every open
+> question and untested number, once, with a status), `docs/astronomy.md`
 > (the two-semester curriculum audit and the build order it proposes), and
 > `docs/manual.md` (the player-facing manual — it states real prices and goes
 > stale the moment you change one). Then skim `src/` and `src/trader/`; every
@@ -714,7 +715,7 @@ is here. Balance items below are still unplayed and I have not blind-tuned any.
 
 ## Where things stand (2026-07-26)
 
-**Repo/deploy.** `~/Dropbox/Solbound`, repo `joshuadanielspencer-boop/solbound`,
+**Repo/deploy.** `~/Dropbox/Miscellaneous/Claude Code Projects/Solbound`, repo `joshuadanielspencer-boop/solbound`,
 LIVE at the URL above. Push to `main` → GitHub Actions runs `npm test` then builds
 and deploys. `~/bin/gh` is authed. The front door (`#/`) is the game; the old
 "systems hub" labs live behind `#/codex` as reference.
@@ -988,146 +989,14 @@ Sources: [ED rare goods](https://elite-dangerous.fandom.com/wiki/List_of_Rare_Co
 [Pirates! aging](https://sidmeierspirates.fandom.com/wiki/Age) ·
 [Sunless Sea port reports](https://sunlesssea.fandom.com/wiki/Port_Report)
 
-## Awaiting Joshua's feedback (no response yet — not settled)
+## Open decisions and untested balance → `docs/decisions.md`
 
-Decisions made this sprint that have had NO playtest or comment. Surface before
-building on top of them:
+The three lists that used to live here — "Awaiting Joshua's feedback", "Open
+decisions" and "Known balance notes" — carried the same dozen items three times
+over, and every session re-read and re-stated them. They are now ONE table in
+[`docs/decisions.md`](decisions.md), each item once, with a status: `OPEN`,
+`UNTESTED`, `ANSWERED`, `LOCKED`, `DEBT`.
 
-- **Escape pod as the death answer** ($35k, one use, wake at nearest port).
-- **Contraband tone & numbers**: arms/fissiles as the two goods; fine 0.35×value
-  ×risk; 3.15× legal/banned spread; smuggling being mid-game-by-geography.
-- **Wages vs early capital**: cheapest hire $130/day; a crewed 9-month Mars run
-  costs more in wages than a starter's cargo. Best pressure or early trap?
-- **Encounter frequency**: ~45-50% per quiet Mars leg (0.08/month base).
-- **Paid newspaper** ($330–780 by tech) — act-not-tax intent.
-- **Slot kinds**: Courier can never mount a shield; only the Cutter fights.
-- **Crew pool**: 12 named hands, tech-gated ratings, 40-day refresh.
-- **The drawn world itself**: 16-20 sites/run, operator/installation tone
-  ("The Quiet Company", "Reiner Gamma Retreat"), name style, census content.
-- **Conjunction**: 3° threshold ≈ 18-day blackout; intel fully dark (no stale
-  cache); flying still allowed.
-- **Atlas reveal rules**: Earth free; docking reveals a place; lab reveals a
-  system. And survey-lab-as-instrument vs future survey MISSIONS.
-- **Deferred calls**: Aldrin cycler atlas-only until phasing; ephemeris 2050
-  horizon still standing (Joshua said multi-mission long games are the goal —
-  the 3000AD tables are now genuinely needed, not deferred-forever).
-- **~15 unpushed commits** — pushing deploys; his call.
-
-Added 2026-07-27, also unanswered:
-- **What standing should BUY** beyond the talk-down bonus. Named on the screen as
-  an open question rather than silently built: friendly-port tariff, contracts
-  gated on trust, a region that turns hostile.
-- **Boil-off as a mechanic at all** — it makes the hydrogen eras a decision
-  instead of a straight upgrade, and it is true, but it also means the best drive
-  in the game punishes long coasts unless you spend a gadget bay on a cryocooler.
-- **The drive ladder stopping where it does** — NTR is the last purchasable era;
-  NEP and the torch are shown with reasons. That leaves the outer system genuinely
-  shut for now, which may be right (it is what ISRU and depots are FOR) or may
-  read as a dead end.
-- **Missions vs production chains** — the direction call at the top of this file.
-
-## Open decisions — Joshua has NOT answered these
-
-Surface every one of these when it becomes relevant rather than building past it.
-
-**ANSWERED 2026-07-28 (second session), kept for the record:**
-- ~~Surface map scope~~ → **every body with a placed port**, using generated IAU
-  landmarks as context. Built.
-- ~~The lunar plate~~ → **NASA SVS CGI Moon Kit**, public domain, poles filled.
-  Fetched and in the manifest.
-
-**Still asked and unanswered:**
-- **Course tab after a map/panel merge:** does it disappear entirely, or survive
-  as a sortable comparison list? A list beats a map for "which of these is
-  cheapest". My recommendation, on record and not yet acted on: KEEP it as a
-  sortable table reached from the map. Joshua's own measurement is the argument —
-  trip lengths are bimodal (~26% six-day hops, ~70% six months to years), so the
-  interesting comparison is a column of numbers, not a spatial layout. The map
-  answers *where*; a table answers *which of these eighteen*.
-- **Difficulty.** Now cycles in the pause menu, stores a value, and is wired to
-  NOTHING — the dialog says so. `design.md` §12 explicitly declined difficulty
-  settings ("our difficulty is the rocket equation and the faction draw"). Joshua
-  asked for the control; this is a locked decision that needs revisiting rather
-  than quietly overturning.
-- ~~Sound effects — asked for a brainstorm~~ → proposed and the core built
-  2026-07-28. **Unplayed:** every level, and the alert/damage/caught trio in
-  particular, which nobody has yet heard in a real encounter.
-
-**Long-standing, still open (see "Known balance notes"):**
-- Escape pod at $35,000 as the answer to death.
-- Crew wages: one hire turns a 9-month Mars run into ~$86k, more than a starter's
-  cargo. Best pressure in the game, or a trap that makes hiring a mistake?
-- Encounter frequency ~45–50% per quiet Mars leg.
-- Contraband numbers, the paid newspaper, slot kinds, the drawn world's tone.
-- The 2050 ephemeris horizon (Standish Table 1 stops there; multi-century
-  campaigns need the 3000 BC–3000 AD tables).
-- `DELTA_V_FROM_LEO` is still invented and labelled as such.
-
-
-## Known balance notes for playtest (not blind-tuned)
-
-**New this session, all first guesses, none playtested:**
-- **Drive prices.** Hydrolox $260k, nuclear thermal $1.8M, against a $300k
-  starting purse and a $620k top hull. Deliberately sited past the Ship Yard as
-  the next mountain; trade-in is 45% (`DRIVE_RESALE`), so a round trip always
-  loses. Whether $1.8M is "a campaign's savings" or "twenty minutes of contraband"
-  depends entirely on how the mid-game actually earns, which nobody has played.
-- **Boil-off rates.** 0.16%/day hydrolox, 0.13%/day NTR, cryocooler ×0.1
-  (`CRYO_FACTOR`). Real passive LH2 tankage is in this range and active
-  zero-boil-off systems target below 0.1%/day, so the physics is defensible; the
-  *feel* is not tested. A Mars coast costs ~30% of the reserve. If that reads as
-  nagging rather than as a reason to fit a cryocooler, it is two numbers in
-  `DRIVES`.
-- **Cryocooler at $140k in a gadget bay** — it competes with the drop tank and the
-  survey lab, which is meant to be the trade. A Courier has 2 gadget bays.
-- **Standing tiers.** Bands chosen so the data's own dispositions read true
-  (hostile opens at Distrusted, friendly at Welcome). Standing still buys exactly
-  one thing (up to ±40 points on a talk-down). **What else it should buy is an
-  open design question, surfaced on the screen rather than guessed at** — the
-  candidates are a friendly port's tariff, contracts gated on trust, and a region
-  that turns hostile.
-- **Wait steps** are +7 / +30 / +90 days. Waiting is free without a crew, which
-  may be too free — the counter-pressure is meant to be the calendar itself, and
-  there is no career clock yet.
-
-- **Encounter frequency on long legs.** The hazard rate is per-month-exposed, so
-  an 8–9 month Mars run in *quiet* space still comes out around 45–50%, and a
-  playtest hit trouble on two consecutive Mars legs. That may be right (it makes
-  the long haul feel long) or it may be nagging — it's one constant,
-  `encounterChance`'s `0.08` base per month.
-- **Duty rates** (3–6% of controlled-cargo value) are a first guess. On a 2 t
-  electronics run to Jezero the duty came to ~$58k against ~$1.7M of cargo, which
-  felt like a real but survivable toll. Untested at freighter scale.
-- **Wages versus early capital — the one to watch.** A single hire at $320/day
-  turns a 9-month Mars run into $86,171 of wages, which on a fresh captain's
-  purse is more than the cargo. That is either the best pressure in the game (a
-  crew is a commitment to short routes until you're rich) or a trap that makes
-  hiring a mistake before the mid-game. It wants a real playthrough to tell.
-  Wages are per-crew in `data/crew.js`; the cheapest hire is Prakash at $130.
-- **Escape pod price ($35,000).** Meant to sting on a starter purse and be
-  beneath notice later. Untested against a real death — I have only unit-tested
-  the payoff, never lost a ship in play.
-- **Paper price** (150 + 90 × tech, so $780 at Gateway and $330 at Callisto).
-  Trivial next to any cargo; the point is the act, not the cost. If it reads as
-  pure tax, make it free at your home port or fold it into a relay upgrade.
-- **The Courier gained a bay** (2 undifferentiated → 1 weapon + 2 gadget). A
-  slightly more generous starter than before; watch whether the first hour is now
-  too comfortable.
-- **Contraband spread.** Fissiles run $3.68M/t at Ceres (free port) against
-  $11.6M/t where they're banned — 3.15x, against a fine of ~87% of value plus
-  losing the cargo. Arms carry the same 3.15x at a tenth the stake, which makes
-  them the sane first smuggling run. Untested over a full campaign; the numbers
-  are `equilibriumRatio`'s 0.15 black-market floor and `illegalCargo`'s 0.35 fine
-  rate.
-- **Contraband is mid-game by geography, not by design.** Both source ports
-  (Ceres, Psyche) are out of a starter Courier's range, so the black market opens
-  up when the ship does. That seems right, but it means a new player never sees
-  the mechanic — worth checking whether it should surface earlier.
-
-- Early growth is fast and capital-limited; the Ship Yard is the first real sink.
-- Cislunar (Earth↔Moon) is far more time-efficient than Mars; the reason to fly
-  far is meant to come from faction crises (wire their market mods) + bigger ships.
-- The starter Courier is cislunar-only with cargo until you trade up (rocket
-  equation is honest about cargo mass).
-- Content in `src/data/` is still **draft** (a visible in-app notice says so);
-  facts aren't source-verified yet (project rule 2 for the eventual educational use).
+The rules have not changed: surface an `OPEN` item when it becomes relevant
+rather than building past it, and change an `UNTESTED` number only after a
+playthrough. Add new items there, not here.

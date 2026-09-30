@@ -278,7 +278,18 @@ export const ROTATION = {
   vesta:   { solarDayH: 5.343022, obliquity: 27.469, yearDays: 1330 },
 
   // Tidally locked moons: solar day = orbital period, from MOONS above.
-  luna:      { solarDayH: 29.5306 * 24, obliquity: 23.44, locked: true }, // synodic month
+  // ⚠ THE MOON HAD EARTH'S TILT (23.44°) UNTIL 2026-09-30, and the axial-tilt
+  // lesson on the surface panel printed it in bold, which is how it was caught.
+  // A tidally locked moon in its planet's EQUATORIAL plane shares the planet's
+  // obliquity for seasonal purposes (Phobos, Io below); the Moon is the
+  // exception, because its orbit lies near the ECLIPTIC, inclined 5.1° to it,
+  // and its spin axis is tilted just 1.54° from the ecliptic pole. That 1.54° is
+  // the whole reason the lunar poles hold permanently shadowed craters — the Sun
+  // never rises more than about 1.5° above a polar horizon — which is the fact
+  // the terminator lesson and design.md §6 both rest on. (6.68° is its tilt to
+  // its own orbit; the Sun lies in the ecliptic, so 1.54° is the one that sets
+  // the subsolar latitude.) NASA Moon Fact Sheet.
+  luna:      { solarDayH: 29.5306 * 24, obliquity: 1.54, locked: true }, // synodic month
   phobos:    { solarDayH: 0.31891 * 24, obliquity: 25.19, locked: true },
   deimos:    { solarDayH: 1.26244 * 24, obliquity: 25.19, locked: true },
   io:        { solarDayH: 1.769138 * 24, obliquity: 3.13, locked: true },

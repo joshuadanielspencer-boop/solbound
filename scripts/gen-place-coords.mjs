@@ -173,11 +173,16 @@ async function kmlFor(target) {
   return out.toString("utf8");
 }
 
+/** The KML carries text with XML entities; the regex below captures them raw. */
+const decode = (s) => s == null ? s : s
+  .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+  .replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'");
+
 /** Every placemark in a KML, as plain records. */
 function parse(kml) {
   const field = (block, name) => {
     const m = block.match(new RegExp(`name="${name}">([^<]*)`));
-    return m ? m[1] : null;
+    return m ? decode(m[1]) : null;
   };
   return kml.split("<Placemark").slice(1).map((b) => ({
     name: field(b, "clean_name"),
@@ -186,6 +191,14 @@ function parse(kml) {
     diameterKm: Number(field(b, "diameter")),
     type: field(b, "type"),
     approval: field(b, "approval"),
+    // WHO OR WHAT IT IS NAMED FOR — the gazetteer's own `origin` field, which
+    // is where the history of astronomy actually lives on these maps:
+    // "Johannes Kepler; German astronomer (1571-1630)." Sourced by construction,
+    // which data/features.js's hand-written name origins never were.
+    origin: field(b, "origin"),
+    // The gazetteer's feature page, kept as its numeric id so the file stays
+    // small; the UI rebuilds the URL. This is the citation for every landmark.
+    iau: Number((field(b, "link") || "").match(/Feature\/(\d+)/)?.[1]) || null,
   })).filter((f) => f.name && Number.isFinite(f.lat) && Number.isFinite(f.lonE));
 }
 
@@ -217,6 +230,8 @@ async function main() {
       diameterKm: hit.diameterKm ? Math.round(hit.diameterKm * 10) / 10 : null,
       type: hit.type,
       approval: hit.approval,
+      origin: hit.origin ? tidy(hit.origin) : null,
+      iau: hit.iau,
     });
   }
 
@@ -261,6 +276,8 @@ async function main() {
         lonE: Math.round(toSignedEast(f.lonE) * 100) / 100,
         diameterKm: f.diameterKm ? Math.round(f.diameterKm) : null,
         type: f.type,
+        origin: f.origin ? tidy(f.origin) : null,
+        iau: f.iau,
       }));
     landmarks[id] = picks;
     log(`  ${id.padEnd(10)} ${String(picks.length).padStart(2)} of ${String((byTarget[target] || []).length).padStart(4)} named features`);
@@ -290,7 +307,9 @@ function emit(rows) {
 // 0–360, and three of its longitudes are west values recorded as east); read
 // this file, not that one. \`iauName\` is the IAU's name for the feature, which
 // is often not ours: we name places for what they are FOR, and the gazetteer
-// names them for whoever the IAU was honouring.
+// names them for whoever the IAU was honouring. \`origin\` is the gazetteer's
+// own account of that — who or what the name honours — and \`iau\` is the
+// feature's id on planetarynames.wr.usgs.gov, which is the citation.
 //
 // \`target\` is the body the feature is actually ON, and it is the field the
 // surface map keys on. A place's \`body\` in places.js means "nearest charted
@@ -307,7 +326,7 @@ function emit(rows) {
 // ===========================================================================
 
 export const PLACE_COORDS = {
-${rows.map((r) => `  "${r.placeId}": { lat: ${r.lat}, lonE: ${r.lonE}, iauName: ${JSON.stringify(r.name)}, target: "${r.target}", ${r.diameterKm ? `diameterKm: ${r.diameterKm}, ` : ""}type: ${JSON.stringify(r.type)} },`).join("\n")}
+${rows.map((r) => `  "${r.placeId}": { lat: ${r.lat}, lonE: ${r.lonE}, iauName: ${JSON.stringify(r.name)}, target: "${r.target}", ${r.diameterKm ? `diameterKm: ${r.diameterKm}, ` : ""}type: ${JSON.stringify(r.type)}, origin: ${JSON.stringify(r.origin)}, iau: ${r.iau} },`).join("\n")}
 };
 
 /** Does this place sit somewhere on a surface a map could draw? */
@@ -354,12 +373,18 @@ function emitLandmarks(landmarks, byTarget) {
 // 0°-centred plates in public/plates/. \`diameterKm\` is null where the gazetteer
 // records none, which is normal for linear and albedo features.
 //
+// \`origin\` IS THE HISTORY OF ASTRONOMY, ON THE MAP. It is the gazetteer's own
+// record of who or what each name honours — "Johannes Kepler; German astronomer
+// (1571-1630)." — and it is sourced by construction, which is the difference
+// between this and the name origins hand-written into data/features.js. \`iau\`
+// is the feature's id at planetarynames.wr.usgs.gov/Feature/<id>: the citation.
+//
 // Generated: ${bodies.length} bodies · ${total} landmarks.
 // ===========================================================================
 
 export const LANDMARKS = {
 ${bodies.map((b) => `  ${b}: [\n${landmarks[b].map((f) =>
-    `    { name: ${JSON.stringify(f.name)}, lat: ${f.lat}, lonE: ${f.lonE}, diameterKm: ${f.diameterKm}, type: ${JSON.stringify(f.type)} },`).join("\n")}\n  ],`).join("\n")}
+    `    { name: ${JSON.stringify(f.name)}, lat: ${f.lat}, lonE: ${f.lonE}, diameterKm: ${f.diameterKm}, type: ${JSON.stringify(f.type)}, origin: ${JSON.stringify(f.origin)}, iau: ${f.iau} },`).join("\n")}\n  ],`).join("\n")}
 };
 
 /** The named geography of a body, largest first. Empty array if we have none. */

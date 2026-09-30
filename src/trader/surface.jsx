@@ -241,7 +241,12 @@ export function SurfacePanel({ game, bodyId, onBack }) {
     () => surfaceReport(bodyId, game.sites || [], game.t),
     [bodyId, game.sites, game.t],
   );
+  // WHICH LANDMARK IS OPEN. One at a time, in a line under the list, so the
+  // chips never reflow and the text has room. Reset when the body changes.
+  const [picked, setPicked] = useState(null);
+  useEffect(() => { setPicked(null); }, [bodyId]);
   if (!rep) return null;
+  const openLandmark = picked ? rep.landmarks.find((l) => l.name === picked) : null;
 
   const dark = rep.ports.filter((p) => p.lit === false).length;
   return (
@@ -294,6 +299,7 @@ export function SurfacePanel({ game, bodyId, onBack }) {
               {Math.abs(p.lat).toFixed(1)}°{p.lat >= 0 ? "N" : "S"}, {Math.abs(p.lonE).toFixed(1)}°
               {p.lonE >= 0 ? "E" : "W"} — {p.iauName}
             </div>
+            {p.origin && <div style={S.origin}>Named for {p.origin}</div>}
           </div>
           <div style={{ ...S.lit, color: p.lit === false ? "#9FB2C8" : "var(--gold)" }}>
             {p.lit === null ? "—" : p.lit ? `☀ ${p.sunAltDeg.toFixed(0)}°` : "☾ night"}
@@ -306,13 +312,36 @@ export function SurfacePanel({ game, bodyId, onBack }) {
         The {rep.landmarks.length} largest approved features on {rep.name}, from the IAU Gazetteer of
         Planetary Nomenclature. Largest first.
       </div>
+      {/* THE HISTORY OF ASTRONOMY IS IN THE NAMES, and the gazetteer records who
+          each one honours. A chip opens that in ONE line beneath the list, so the
+          chips never reflow (ui.jsx explains why that matters) and a keyboard
+          reaches every one — these are buttons, not hover targets. */}
       <div style={S.landmarkList}>
         {rep.landmarks.map((l) => (
-          <span key={l.name} style={S.chip}>
+          <button key={l.name} type="button"
+            style={{ ...S.chip, ...(picked === l.name ? S.chipOn : null) }}
+            aria-pressed={picked === l.name}
+            onClick={() => setPicked((p) => (p === l.name ? null : l.name))}>
             {l.name}{l.diameterKm ? ` · ${l.diameterKm.toLocaleString()} km` : ""}
-          </span>
+          </button>
         ))}
       </div>
+      {openLandmark && (
+        <div style={S.landmarkDetail} data-landmark={openLandmark.name}>
+          <b>{openLandmark.name}</b>
+          {openLandmark.type ? <span style={S.dim}> · {openLandmark.type.split(",")[0].toLowerCase()}</span> : null}
+          {openLandmark.origin
+            ? <div style={S.origin}>Named for {openLandmark.origin}</div>
+            : <div style={S.origin}>The gazetteer records no origin for this name.</div>}
+          {openLandmark.iau && (
+            <a href={`https://planetarynames.wr.usgs.gov/Feature/${openLandmark.iau}`}
+              target="_blank" rel="noopener" style={S.iauLink}
+              aria-label={`${openLandmark.name} in the IAU Gazetteer (opens in a new tab)`}>
+              IAU Gazetteer ↗
+            </a>
+          )}
+        </div>
+      )}
 
       <Footnote>
         The length of the day and the swing of the seasons are real. WHERE the Sun stands on a given
@@ -338,5 +367,12 @@ const S = {
   lit: { fontSize: 12.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
   dim: { fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 },
   landmarkList: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 },
-  chip: { fontSize: 11, color: "#B9C2D4", border: "1px solid var(--line)", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" },
+  // Longhands, not the `border` shorthand: `chipOn` overrides borderColor, and
+  // React warns when a longhand vanishes on rerender against a shorthand — the
+  // origins test caught it through the console.error trap on the first run.
+  chip: { fontSize: 11, color: "#B9C2D4", background: "transparent", borderWidth: 1, borderStyle: "solid", borderColor: "var(--line)", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit" },
+  chipOn: { borderColor: "var(--gold)", color: "var(--gold)" },
+  landmarkDetail: { marginTop: 8, padding: "8px 10px", background: "#0B111C", border: "1px solid var(--line)", borderRadius: 8, fontSize: 12.5, lineHeight: 1.5 },
+  origin: { fontSize: 11.5, color: "#C2CBDB", marginTop: 3, lineHeight: 1.45 },
+  iauLink: { display: "inline-block", marginTop: 5, fontSize: 11, color: "var(--gold)", textDecoration: "none" },
 };

@@ -94,7 +94,23 @@ describe("fitting modules", () => {
     let g = rich();                                 // courier: 2 gadget bays
     g = fitModule(g, "hold").game;
     g = fitModule(g, "tank").game;
-    expect(fitModule(g, "miner").error).toBe("no-slot");
+    expect(fitModule(g, "lab").error).toBe("no-slot");
+  });
+
+  it("does not sell the mining rig, because it does nothing", () => {
+    // `canMine` is read nowhere. A module that takes a bay and $60,000 and has
+    // no effect is a trap; it stays in the data so old saves load, and out of
+    // the shop until prospecting exists.
+    const g = rich();
+    expect(modulesForSale(g).map((m) => m.module.id)).not.toContain("miner");
+    expect(fitModule(g, "miner").error).toBe("not-for-sale");
+  });
+
+  it("still lists a mining rig that is already aboard, so it can be removed", () => {
+    const g = rich();
+    const fitted = { ...g, player: { ...g.player, ship: { ...g.player.ship, modules: ["miner"] } } };
+    const row = modulesForSale(fitted).find((m) => m.module.id === "miner");
+    expect(row?.fitted).toBe(true);
   });
 
   it("a hull with no bay of a kind can never mount that kind, at any price", () => {

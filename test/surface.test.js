@@ -386,3 +386,67 @@ describe("plumbing", () => {
     for (const b of bodies) expect(hasSurfaceMap(b)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The names carry their history
+// ---------------------------------------------------------------------------
+
+describe("every landmark and port says who it is named for", () => {
+  // The gazetteer's `origin` field is where the history of astronomy actually
+  // lives on these maps, and it is sourced by construction — unlike the
+  // hand-written name origins in data/features.js. Generated 2026-09-30.
+  it("every landmark carries an origin and an IAU feature id", () => {
+    for (const [body, list] of Object.entries(LANDMARKS)) {
+      for (const l of list) {
+        expect(typeof l.origin, `${body}/${l.name} origin`).toBe("string");
+        expect(l.origin.length, `${body}/${l.name} origin`).toBeGreaterThan(2);
+        expect(Number.isInteger(l.iau) && l.iau > 0, `${body}/${l.name} iau id`).toBe(true);
+      }
+    }
+  });
+
+  it("every placed port carries one too", () => {
+    for (const [id, c] of Object.entries(PLACE_COORDS)) {
+      expect(typeof c.origin, `${id} origin`).toBe("string");
+      expect(Number.isInteger(c.iau) && c.iau > 0, `${id} iau id`).toBe(true);
+    }
+  });
+
+  it("names the astronomers the game is built on — sourced, not remembered", () => {
+    // Two names that ARE on the landmark list, with the gazetteer's own words.
+    const all = Object.values(LANDMARKS).flat();
+    const kepler = all.find((l) => /^Kepler/.test(l.name));
+    expect(kepler, "no Kepler feature among the landmarks").toBeTruthy();
+    expect(kepler.origin).toMatch(/astronomer/);
+    expect(kepler.origin).toMatch(/1571/);
+    expect(PLACE_COORDS.shackleton.origin).toMatch(/Antarctic explorer/);
+  });
+
+  it("carries no XML entities through from the KML", () => {
+    for (const l of Object.values(LANDMARKS).flat()) {
+      expect(l.origin, l.name).not.toMatch(/&(amp|lt|gt|quot|apos|#39);/);
+    }
+  });
+});
+
+describe("the Moon's tilt is its own, not Earth's", () => {
+  // ROTATION.luna carried 23.44° — Earth's obliquity — from the day it was
+  // written until 2026-09-30, and the surface panel's axial-tilt lesson printed
+  // it in bold, which is how it was noticed. The Moon's spin axis leans 1.54°
+  // from the ecliptic pole; that is the entire reason its poles hold craters in
+  // permanent shadow, the fact the terminator lesson is built on.
+  it("gives the Moon a tilt small enough for permanently shadowed poles", () => {
+    expect(ROTATION.luna.obliquity).toBeGreaterThan(1);
+    expect(ROTATION.luna.obliquity).toBeLessThan(2);
+  });
+
+  it("so lunar polar night never reaches more than ~1.6° from the pole", () => {
+    // Sweep a lunar year of dates; the polar-night boundary must stay within
+    // the tilt of the pole in every one. With Earth's tilt it reached 66.6°.
+    const start = Date.UTC(2035, 0, 1);
+    for (let d = 0; d < 400; d += 10) {
+      const pn = polarNight("luna", start + d * 86400000);
+      if (pn) expect(pn.fromLat, `day ${d}`).toBeGreaterThan(88);
+    }
+  });
+});

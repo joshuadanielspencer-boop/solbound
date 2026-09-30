@@ -225,7 +225,9 @@ export function buyDrive(game, driveId) {
 export function modulesForSale(game) {
   const ship = game.player.ship;
   const slots = slotUsage(ship.hull, ship.modules);
-  return MODULES.map((m) => ({
+  // A module marked not-for-sale is still LISTED if it is aboard, so it can be
+  // removed — a fitted thing you cannot see is worse than one you cannot buy.
+  return MODULES.filter((m) => m.forSale !== false || ship.modules.includes(m.id)).map((m) => ({
     module: m,
     fitted: ship.modules.includes(m.id),
     slotKind: SLOT_KINDS[m.slot],
@@ -239,6 +241,7 @@ export function fitModule(game, moduleId) {
   const m = MODULE_BY_ID[moduleId];
   const ship = game.player.ship;
   if (!m) return { error: "no-such-module" };
+  if (m.forSale === false) return { error: "not-for-sale", reason: "Nobody sells that." };
   if (ship.modules.includes(moduleId)) return { error: "already-fitted", reason: "Already aboard." };
   const slots = slotUsage(ship.hull, ship.modules);
   if (slots.free[m.slot] <= 0) {
