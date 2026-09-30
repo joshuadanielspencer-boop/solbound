@@ -160,9 +160,9 @@ export default function Trader() {
     setPhase("create");
   };
 
-  const beginCaptain = ({ name, skills }) => {
+  const beginCaptain = ({ name, skills, mode }) => {
     const seed = (Date.now() % 100000) | 0;
-    setGame(newGame(newPlayer({ name, skills }), seed));
+    setGame(newGame(newPlayer({ name, skills }), seed, mode));
     setPhase("play");
   };
 

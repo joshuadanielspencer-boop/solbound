@@ -10,11 +10,16 @@ import { useState } from "react";
 import {
   SKILLS, BACKGROUNDS, SKILL_POINTS, SKILL_MIN, SKILL_MAX, validSkills, backgroundById,
 } from "../data/captain.js";
+import { MODES, MODE_IDS, DEFAULT_PICK } from "../data/modes.js";
 
 export default function CreateCaptain({ onBegin, onBack }) {
   const [name, setName] = useState("");
   const [skills, setSkills] = useState(BACKGROUNDS[0].skills);
   const [bg, setBg] = useState(BACKGROUNDS[0].id);
+  // WHICH GAME. A Run by default: it is the one that can be finished in an
+  // evening, and a first game should have an ending in sight. The Campaign is
+  // one click away and says what it is.
+  const [mode, setMode] = useState(DEFAULT_PICK);
 
   const spent = Object.values(skills).reduce((a, b) => a + b, 0);
   const left = SKILL_POINTS - spent;
@@ -43,7 +48,28 @@ export default function CreateCaptain({ onBegin, onBack }) {
           in delta-v. Who are you?
         </p>
 
-        <label style={s.label}>Name</label>
+        <div style={s.section}>Choose a game</div>
+        <div style={s.bgGrid}>
+          {MODE_IDS.map((id) => {
+            const m = MODES[id];
+            const on = mode === id;
+            return (
+              <button key={id} onClick={() => setMode(id)}
+                style={{ ...s.bgCard, ...(on ? s.bgOn : null) }} aria-pressed={on}>
+                <div style={s.bgTop}><span style={s.bgEmoji}>{m.emoji}</span><b>{m.name}</b></div>
+                <div style={s.modeTag}>{m.tagline}</div>
+                <div style={s.bgStory}>{m.story}</div>
+                {m.charterYears && (
+                  <div style={s.modeTerms}>
+                    {m.charterYears} years · target ${(m.targetCredits / 1e6).toFixed(0)}M
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <label style={{ ...s.label, marginTop: 28 }}>Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Captain…"
           style={s.input} maxLength={24} aria-label="Captain name" />
 
@@ -79,7 +105,7 @@ export default function CreateCaptain({ onBegin, onBack }) {
         </div>
 
         <button style={{ ...s.begin, opacity: legal ? 1 : 0.4 }} disabled={!legal}
-          onClick={() => onBegin({ name: name.trim() || "Captain", skills })}>
+          onClick={() => onBegin({ name: name.trim() || "Captain", skills, mode })}>
           Begin ▸
         </button>
         {!legal && <div style={s.warn}>Spend exactly {SKILL_POINTS} points across the four skills.</div>}
@@ -105,6 +131,8 @@ const s = {
   bgTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 15 },
   bgEmoji: { fontSize: 20 },
   bgStory: { fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 },
+  modeTag: { fontSize: 12.5, color: "var(--text)", marginBottom: 6, lineHeight: 1.4 },
+  modeTerms: { fontSize: 11, color: "var(--gold)", marginTop: 8, letterSpacing: 0.3, fontVariantNumeric: "tabular-nums" },
   skills: { display: "flex", flexDirection: "column", gap: 14 },
   skillRow: { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 14px" },
   skillHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 12, flexWrap: "wrap" },

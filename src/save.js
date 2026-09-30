@@ -24,10 +24,12 @@
 // ===========================================================================
 
 import { initialMarkets } from "./market.js";
+import { charterFor } from "./ending.js";
+import { START_DATE } from "./tradergame.js";
 import { marketMods } from "./factions.js";
 import { CORE_SITES } from "./data/sites.js";
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 const STORAGE_KEY = "solbound.save.v1";      // versioned key so a hard format break can coexist
 const AUTOSAVE_SLOT = "auto";
 
@@ -241,6 +243,19 @@ const MIGRATIONS = {
     save.version = 10;
     return save;
   },
+  // v11: a game knows which MODE it is and the charter it runs under (Run mode,
+  // 2026-09-30). Every save before this was open-ended, which is exactly what a
+  // Campaign is, so that is what they become — with a charter that has no clock
+  // and no target, dated to the game's own start.
+  10: (save) => {
+    const s = save.state;
+    if (s) {
+      if (!s.mode) s.mode = "campaign";
+      if (!s.charter) s.charter = charterFor("campaign", START_DATE);
+    }
+    save.version = 11;
+    return save;
+  },
 };
 
 function migrate(save) {
@@ -331,6 +346,7 @@ function summarise(save, slot = null) {
     where: g.status === "transit" ? "under way" : g.player?.at,
     dateISO: new Date(g.t).toISOString().slice(0, 10),
     seed: g.seed,
+    mode: g.mode || "campaign",
     over: !!g.over,
     stampMs: save.stampMs || 0,
     label: save.label,

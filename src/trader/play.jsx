@@ -25,6 +25,8 @@ import { FaceOff } from "./ships.jsx";
 import { SurfaceView, SurfacePanel } from "./surface.jsx";
 import { hasSurfaceMap } from "../surface.js";
 import { build as buildWorks } from "../industry.js";
+import { retire, charterLeftYears } from "../ending.js";
+import { MODE_BY_ID } from "../data/modes.js";
 import { PROCESS_BY_ID } from "../data/industry.js";
 import { useSfx } from "./sfx.jsx";
 import Panel, { SystemAtlas, CoursePreview } from "./panels.jsx";
@@ -369,11 +371,20 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
   // Everything the panel screens can do, in one bundle. The screens live in
   // panels.jsx and hold no game state of their own — they read the game and
   // call these, which keeps every mutation in one file with the clock.
+  // RETIRE. The captain's own ending, from the pause menu, at a port. The
+  // menu asks twice; this is the second answer.
+  const doRetire = () => {
+    const r = retire(game);
+    if (r.error) return flash(r.reason, "bad");
+    setPaused(false);
+    setGame(r.game);
+  };
+
   const actions = {
     buy: doBuy, sell: doSell, refuel: doRefuel, wait: doWait, buyPaper: doBuyPaper,
     buyShip: doBuyShip, fit: doFit, remove: doRemove, repair: doRepair, buyPod: doBuyPod,
     hire: doHire, dismiss: doPayOff, buyDrive: doBuyDrive, launch: doLaunch,
-    build: doBuild,
+    build: doBuild, retire: doRetire,
   };
 
   // Download the current game as a file — survives a cleared cache and moves
@@ -445,7 +456,7 @@ export default function Play({ game, setGame, onQuit, audio, cue, onToggleAudio,
         </aside>
       </div>
       {paused && (
-        <PauseMenu game={game} setGame={setGame} audio={audio}
+        <PauseMenu onRetire={doRetire} canRetire={game.status === "docked" && !game.over} game={game} setGame={setGame} audio={audio}
           onResume={() => setPaused(false)} onQuit={onQuit}
           onSave={downloadSave} onToggleAudio={onToggleAudio} />
       )}
@@ -489,6 +500,16 @@ function Hud({ game, onQuit, setRate, skip, held, onRelease, audio, cue, onToggl
         )}
         {dailyCost(game) > 0 && <Hstat label="Wages" value={`${money(dailyCost(game))}/day`} />}
         <Hstat label="Date" value={fmtDate(game.t)} />
+        {/* A RUN SHOWS ITS CLOCK AND ITS NUMBER, because they are the game. A
+            Campaign shows neither: it has neither, and that is the difference. */}
+        {game.charter?.endT && (
+          <Hstat label="Charter" value={sayLeft(charterLeftYears(game))}
+            tone={charterLeftYears(game) < 1 ? "hot" : undefined} />
+        )}
+        {game.charter?.targetCredits && (
+          <Hstat label="Target" value={money(game.charter.targetCredits)}
+            tone={p.credits >= game.charter.targetCredits * 0.75 ? "gold" : undefined} />
+        )}
         {/* SAY IT, RATHER THAN JUST DOING IT. A held clock beside a date that
             never changes is indistinguishable from a frozen game, and the
             player who most needs this is the least likely to guess why. */}
@@ -734,26 +755,55 @@ function EffectList({ game, effects: e }) {
   );
 }
 
-/** The run ends here. Honest about it, and offers the only thing left to do. */
+/**
+ * THE ENDING SCREEN. One screen for all four ways out — destroyed, target,
+ * charter, retired — because they land in the same place (`game.over`) and the
+ * player wants the same thing from each: what happened, and what it came to.
+ *
+ * "What became of you" is Pirates!'s line and the design's: a Run is scored,
+ * a Campaign is measured by the umbilical, and the number is said out loud.
+ * A destroyed ship keeps its own, harder framing.
+ */
 function GameOver({ game, onQuit }) {
+  const o = game.over;
+  const lost = o.reason === "destroyed";
+  const sc = o.score;
+  const mode = MODE_BY_ID[sc?.modeId || game.mode] || MODE_BY_ID.campaign;
   return (
-    <div style={{ padding: "24px 18px" }}>
-      <div style={{ ...S.encKind, color: "var(--hot)", borderColor: "var(--hot)" }}>The run ends here</div>
-      <div style={S.encTitle}>{game.over.headline}</div>
-      <div style={S.encText}>{game.over.detail}</div>
+    <div style={{ padding: "24px 18px" }} data-ending={o.reason}>
+      <div style={{ ...S.encKind, color: lost ? "var(--hot)" : "var(--gold)", borderColor: lost ? "var(--hot)" : "var(--gold)" }}>
+        {lost ? "The run ends here" : "What became of you"}
+      </div>
+      <div style={S.encTitle}>{o.headline}</div>
+      <div style={S.encText}>{o.detail}</div>
       <div style={S.hr} />
+      {sc && !lost && (
+        <>
+          <div style={S.rankName}>{sc.rank}</div>
+          <div style={S.rankNote}>{sc.rankNote}</div>
+          <div style={S.hr} />
+        </>
+      )}
       <Row label="Captain" value={game.player.name} />
-      <Row label="Last seen" value={fmtDate(game.over.t)} />
-      <Row label="Credits" value={money(game.player.credits)} />
-      <Row label="Ports visited" value={`${game.visited.length}`} />
-      <p style={{ ...S.small, marginTop: 16 }}>
-        A hull that has already been opened up does not survive a second fight. The Ship Yard
-        repairs damage; the trick is going there before the next crossing, not after.
-      </p>
+      <Row label={mode.name} value={sc ? `${sc.years} years` : fmtDate(o.t)} />
+      <Row label="Net worth" value={money(sc ? sc.netWorth : game.player.credits)} />
+      {sc?.targetCredits && <Row label="Of a target" value={money(sc.targetCredits)} />}
+      <Row label="Ports visited" value={`${sc ? sc.portsVisited : game.visited.length}`} />
+      {sc && <Row label="Plants built" value={`${sc.plantsBuilt}`} />}
+      {sc && <Row label="Supply links cured" value={`${sc.linksCured} of ${sc.linksTotal}`} />}
+      {lost && (
+        <p style={{ ...S.small, marginTop: 16 }}>
+          A hull that has already been opened up does not survive a second fight. The Ship Yard
+          repairs damage; the trick is going there before the next crossing, not after.
+        </p>
+      )}
       <button style={S.goBtn} onClick={onQuit}>New captain</button>
     </div>
   );
 }
+
+/** "8.2 years" / "7 months" / "days" — the charter clock's own units. */
+const sayLeft = (y) => y == null ? "—" : y >= 1 ? `${y.toFixed(1)} yr` : y * 12 >= 1 ? `${Math.round(y * 12)} mo` : "days";
 
 // ---------------------------------------------------------------------------
 // Dock
@@ -1346,8 +1396,11 @@ function SitePin({ site, x, y, here, sel, onPick, onHover }) {
  */
 const DIFFICULTIES = ["Forgiving", "Standard", "Unforgiving"];
 
-function PauseMenu({ game, setGame, audio, onResume, onQuit, onSave, onToggleAudio }) {
+function PauseMenu({ game, setGame, audio, onResume, onQuit, onSave, onToggleAudio, onRetire, canRetire }) {
   const diff = game.difficulty || "Standard";
+  // Retiring ends the game and there is no undo, so the button asks a second
+  // time — in place, with the same button, rather than a dialog over a dialog.
+  const [sure, setSure] = useState(false);
   const cycle = () => setGame((g) => ({
     ...g,
     difficulty: DIFFICULTIES[(DIFFICULTIES.indexOf(g.difficulty || "Standard") + 1) % DIFFICULTIES.length],
@@ -1367,6 +1420,13 @@ function PauseMenu({ game, setGame, audio, onResume, onQuit, onSave, onToggleAud
         <button style={S.modalBtn} onClick={cycle}>
           Difficulty <span style={S.modalVal}>{diff}</span>
         </button>
+        {canRetire && (
+          <button style={{ ...S.modalBtn, ...(sure ? S.modalQuit : null) }}
+            onClick={() => (sure ? onRetire() : setSure(true))}
+            onBlur={() => setSure(false)}>
+            {sure ? "Retire — end this game now?" : "Retire here"}
+          </button>
+        )}
         <button style={{ ...S.modalBtn, ...S.modalQuit }} onClick={onQuit}>Return to main menu</button>
 
         <div style={S.modalNote}>
@@ -1445,6 +1505,8 @@ const S = {
   progressTrack: { height: 8, background: "var(--panel-2)", borderRadius: 5, overflow: "hidden", border: "1px solid var(--line)" },
   progressFill: { height: "100%", background: "var(--gold)" },
   hr: { height: 1, background: "var(--line)", margin: "16px 0" },
+  rankName: { fontSize: 22, fontWeight: 700, color: "var(--gold)", letterSpacing: 0.3 },
+  rankNote: { fontSize: 12.5, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 },
 
   siteName: { fontSize: 19, fontWeight: 700, padding: "16px 18px 4px" },
   sysinfo: { padding: "0 18px 8px" },

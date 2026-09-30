@@ -60,6 +60,7 @@ export default function Saves({ onResume, onNew, onDelete, onBack }) {
                 aria-label={`Resume ${r.name}, ${r.where}, ${r.dateISO}`}>
                 <div style={s.name}>
                   {r.name}
+                  <span style={s.mode}>{r.mode === "run" ? "Run" : "Campaign"}</span>
                   {r.over && <span style={s.dead}>ended</span>}
                 </div>
                 <div style={s.meta}>
@@ -113,6 +114,7 @@ const s = {
   open: { flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer", color: "var(--text)", borderRadius: 9 },
   name: { fontSize: 15.5, fontWeight: 700 },
   dead: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--hot)", border: "1px solid var(--hot)", borderRadius: 9, padding: "1px 7px", marginLeft: 8 },
+  mode: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 9, padding: "1px 7px", marginLeft: 8 },
   meta: { fontSize: 12.5, color: "var(--muted)", marginTop: 3, fontVariantNumeric: "tabular-nums" },
   seed: { fontSize: 11, color: "var(--muted)", opacity: 0.7, marginTop: 2 },
   small: { background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 11px", cursor: "pointer", color: "var(--muted)", fontSize: 12, flexShrink: 0 },

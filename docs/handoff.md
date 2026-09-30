@@ -92,6 +92,83 @@ of this file is the detail that block points at.
 
 ---
 
+## Run mode, the origins of names, and the Moon's tilt — 2026-09-30
+
+Three commits. The first two were the "small batch" and turned up a fact error;
+the third is the thing the project has needed since July.
+
+### Run mode — the game can end
+
+`data/modes.js` is the data (design.md §12: "the victory condition and the time
+cap are DATA, not code paths"); `ending.js` is the check, pure, over the game
+value. Four ways out land in one place, `game.over`, with a **score** frozen
+onto it at the moment it happened:
+
+| | how | who |
+|---|---|---|
+| `target` | a Run's credits reach the number | `ending.js`, checked after `advanceTime`, `wait` and — because that is where money arrives — `sell` |
+| `charter` | a Run's clock runs out | same |
+| `retired` | the captain chose to, at a port — asked twice, in the pause menu | `retire()` |
+| `destroyed` | the ship lost with no pod | `encounters.js`, unchanged |
+
+**Run:** 10 years, $2,000,000. **Campaign:** no clock, no target, retire when
+you choose, scored by supply links cured (`umbilicalReport`). Both numbers are
+first guesses and are `UNTESTED` in decisions.md.
+
+**Two defaults, deliberately.** `DEFAULT_MODE` (the engine's, for `newGame()`
+without a mode) is `campaign`, so nothing that never asked for an ending gets
+one — the crew test's 4.4M-credit captain was being retired mid-crossing by a
+target it never chose, which is how the distinction was found. `DEFAULT_PICK`
+(the create screen's) is `run`, because a first game should have an ending in
+sight. Flip the second, not the first.
+
+The ending check does NOT run mid-encounter: an unresolved encounter holds the
+world as it holds the clock, and a fortune reached in the tick a pirate arrives
+is settled after the pirate. `advanceTime` was renamed `advanceTimeRaw` and
+wrapped, rather than editing three return sites, so no branch can forget.
+
+**Net worth is cash plus the ship at the yard's price, not cargo** — what is in
+the hold is worth whatever the next port pays, which the intel layer refuses to
+know in advance. Save is **v11**; a v10 save becomes an open-ended Campaign.
+
+The HUD shows a Run's clock and target and nothing for a Campaign. The ending
+screen is one screen for all four: "What became of you", a rank, net worth,
+ports, plants, links cured. A lost ship keeps its harder framing.
+
+### The history of astronomy is on the map, sourced by construction
+
+The IAU gazetteer's bulk export — already cached for all 17 bodies — carries an
+`origin` field for every feature. The generator now writes it, with the
+feature's id on planetarynames.wr.usgs.gov, into `landmarks.js` and
+`place-coords.js`. Regenerated from cache and **proved additive**: 320 landmarks
+and 27 places, zero (name, lat, lon, diameter, type) tuples changed. On the
+surface panel a landmark chip is a button that opens its origin and a citation
+link; ports say who their feature honours. `data/features.js`'s hand-written
+origins can now retire rather than be verified.
+
+### ⚠ The Moon had Earth's tilt
+
+`ROTATION.luna.obliquity` was **23.44°** from the day it was written. Last
+week's axial-tilt lesson printed it in bold, and it read as wrong. The Moon's
+spin axis leans 1.54° from the ecliptic pole — the whole reason its poles hold
+permanently shadowed craters, which the terminator lesson and design.md §6 rest
+on. Fixed, sourced, and a test sweeps a lunar year to hold polar night within
+2° of the pole. Locked moons in their planet's equatorial plane (Phobos, Io)
+sharing the planet's obliquity is right; the Moon orbits near the ecliptic and
+is the exception.
+
+### Also
+
+Mining rig out of the shop (`canMine` read nowhere; entry kept so saves load).
+Three overlapping handoff lists → `docs/decisions.md`. Stale paths after the
+repo moved to `~/Dropbox/Miscellaneous/Claude Code Projects/Solbound`. React's
+style-shorthand warning caught by the smoke trap on the first origins run.
+
+611 tests, 30 files. Pushed and deploy verified by content up to `897fa83`;
+the three commits from this session are local.
+
+---
+
 ## The words — 2026-09-28
 
 Joshua asked whether the game ever calls its mechanics by their scientific
@@ -943,7 +1020,7 @@ faction market modifiers wired to prices, the paid newspaper, encounter art.
 
 - Two victory conditions = two modes: a short **Run** (get rich, retire, under a
   clock) and a long **Campaign** (sever Earth-dependency, become infrastructure).
-  Same engine; victory + time cap are data. (Only Campaign-ish exists so far.)
+  Same engine; victory + time cap are data. **Both built 2026-09-30** — `data/modes.js`, `ending.js`.
 - The player is a **customisable captain** (name, 4 skills), not a faceless company.
 - Keep **SVG/React**, not Canvas — accessibility beats sprite throughput at this scale.
 - **Advance-to-next-decision** pacing with continuous animated time, not literal turns.

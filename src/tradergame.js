@@ -35,6 +35,8 @@ import { spawnSites } from "./worldgen.js";
 import { rollLegEvent, resolveEncounter, dismissEncounter } from "./encounters.js";
 import { ENCOUNTER_BY_ID } from "./data/encounters.js";
 import { dailyWages, payWages } from "./crew.js";
+import { charterFor, withEnding } from "./ending.js";
+import { DEFAULT_MODE } from "./data/modes.js";
 
 const DAY = 86400000;
 export const START_DATE = Date.UTC(2035, 0, 1);
@@ -82,7 +84,7 @@ const INTRA_SYSTEM_DAYS = 6;
  *  the arrival burn an atmosphere lets you shed. */
 const AEROBRAKE = { earth: 0.85, mars: 0.85, venus: 0.9 };
 
-export function newGame(player, seed = 1) {
+export function newGame(player, seed = 1, mode = DEFAULT_MODE) {
   // The world itself is drawn now: the seven core sites plus 9-13 more places
   // from the atlas census, each with a generated installation and operator
   // (worldgen.js). Sites live ON the game and travel in the save, so a home
@@ -103,6 +105,11 @@ export function newGame(player, seed = 1) {
     markets: initialMarkets(mods, sites),
     t: START_DATE,
     seed,
+    // WHICH GAME THIS IS, and how it can end. design.md §12: the victory
+    // condition and the time cap are data. ending.js reads `charter`; the mode
+    // id is kept beside it so a save can say what it was without recomputing.
+    mode,
+    charter: charterFor(mode, START_DATE),
     // The fleet's clock model, now the trade game's. `status` is "docked" (at a
     // site, time paused, the dock open) or "transit" (flying a leg, the clock
     // running). `leg` carries the real transfer arc so the orrery can draw the
@@ -329,6 +336,15 @@ function passTime(game, days) {
 export const CRYO_FACTOR = 0.1;
 
 export function advanceTime(game, toT) {
+  const r = advanceTimeRaw(game, toT);
+  // A charter that ran out, or a fortune that arrived, is checked after every
+  // step of the clock — on arrival, on a plain tick, on the way into an
+  // encounter (where it holds until the encounter is settled; ending.js says
+  // why). One wrapper, so no branch above can forget.
+  return r.game === game ? r : { ...r, game: withEnding(r.game) };
+}
+
+function advanceTimeRaw(game, toT) {
   if (toT <= game.t) return { game };
   // An unresolved encounter holds the clock. The player has a decision to make
   // and the world waits for it, exactly as it waits at a dock.
@@ -520,7 +536,9 @@ export function buy(game, id, tonnes) {
 export function sell(game, id, tonnes) {
   const r = playerSell(game.player, game.markets, id, tonnes);
   if (r.error) return r;
-  return { game: { ...game, player: r.player, markets: r.markets }, ...r };
+  // Selling is where a Run's fortune actually arrives, so the ending check
+  // runs here and not only on the clock.
+  return { game: withEnding({ ...game, player: r.player, markets: r.markets }), ...r };
 }
 
 // ---------------------------------------------------------------------------
@@ -572,12 +590,12 @@ export function wait(game, days) {
   if (game.over) return { game, quit: [] };
   const p = passTime(game, days);
   return {
-    game: {
+    game: withEnding({
       ...game,
       t: game.t + days * DAY,
       markets: p.markets,
       player: p.player,      // waiting in port is not free once you have a crew
-    },
+    }),
     quit: p.quit,
     completed: p.completed,
   };

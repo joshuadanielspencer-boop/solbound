@@ -162,7 +162,22 @@ the number that says so. Getting it to zero, everywhere, is the campaign.
 
 ---
 
-## 6. How a run ends
+## 6. How a game ends
+
+**Choose the kind of game before the captain.** A **Run** is ten years and a
+number: reach **$2,000,000** in the account and you retire rich; let the charter
+run out and you retire with what you have. A **Campaign** has no clock and no
+target — you stop when you choose, and the score is how much of the solar
+system stopped depending on Earth because of what you built. Same engine, same
+map; only the ending differs. The HUD shows a Run's clock and its target.
+
+**Retire** is in the pause menu, at any port. It asks twice. Every ending —
+retired, the number made, the charter run out, or the ship lost — arrives at the
+same screen: what became of you, with a rank, your net worth (cash plus the
+ship at the yard's price), the ports you saw, the plants you built and the
+supply links you cured.
+
+### Trouble on the way
 
 One roll happens per leg, at launch, keyed to your run's seed — so reloading a
 save will not reroll it. Most of what happens is a choice: fight, run, pay them,

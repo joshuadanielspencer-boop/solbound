@@ -33,7 +33,7 @@ Change an `UNTESTED` number only after someone has played against it.
 | **Course tab after the map/panel merge** | `ANSWERED` 2026-07-28 | Kept as a sortable table (soonest / cheapest / best paid). The map answers *where*; a table answers *which of these eighteen*. Trip lengths are bimodal (~26% six-day hops, ~70% six months to years), so the comparison is a column of numbers. |
 | **"Not sold" rows on the market** | `ANSWERED` | Built, then removed at Joshua's call: a thing you cannot act on is not a choice. What you cannot *afford* still shows, because that is one. |
 | **Sound effects** | `ANSWERED` 2026-07-28 | Proposed, core built, procedural like the music. `alert`, `damage`, `caught` still never heard in a real encounter → see UNTESTED. |
-| Two victory conditions = two modes (Run / Campaign), data not code paths | `LOCKED` | `design.md` §12. Neither implemented as of 2026-09-30; Run mode is next. |
+| Two victory conditions = two modes (Run / Campaign), data not code paths | `LOCKED` | `design.md` §12. **Built 2026-09-30** — `data/modes.js` is the data, `ending.js` the check. Run: 10 years, $2M. Campaign: open-ended, retire when you choose, scored by supply links cured. |
 | Customisable captain, not a faceless company | `LOCKED` | `design.md` §12. Built. |
 | SVG/React, not Canvas | `LOCKED` | Accessibility beats sprite throughput at this scale. |
 | Advance-to-next-decision pacing over continuous animated time | `LOCKED` | Time always runs in port; see `play.jsx` for the reasoning. Exception: a player whose OS asks for reduced motion gets a held docked clock (2026-09-23). |
@@ -47,6 +47,9 @@ The constant that owns each one is named so a playtest can go straight to it.
 
 | Item | Status | The guess, and what to watch |
 |---|---|---|
+| **Run mode's two numbers** — $2,000,000 target, 10-year charter | `UNTESTED` | A shape, not a measurement: meant to demand the mid-game (a drive refit is $1.8M) and sit inside the 2050 ephemeris horizon from a 2035 start. Both in `data/modes.js`. Nobody has played to either end. |
+| **Run is the default** on the create screen | `OPEN` | Chosen because a first game should have an ending in sight. Flip `DEFAULT_PICK` in `data/modes.js` if the Campaign should lead; `DEFAULT_MODE` (the engine's, for `newGame()` without a mode) stays `campaign` so nothing that never asked for an ending gets one. |
+| **Rank tiers** (`RUN_RANKS`, `CAMPAIGN_RANKS`) | `UNTESTED` | Net-worth fractions of the target for a Run; cured links for a Campaign. Abstraction, and the thresholds are guesses. |
 | **Escape pod** at $35,000 as the answer to death | `UNTESTED` | Meant to sting on a starter purse and be beneath notice later. Only unit-tested; nobody has lost a ship in play. |
 | **Crew wages vs. early capital** — the one to watch | `UNTESTED` | One $320/day hire turns a 9-month Mars run into ~$86k of wages, more than a starter's cargo. Either the best pressure in the game (a crew commits you to short routes until you are rich) or a trap. Cheapest hire is Prakash at $130; wages are per-crew in `data/crew.js`. |
 | **Encounter frequency** ~45–50% per quiet Mars leg | `UNTESTED` | Per-month-exposed hazard; a playtest hit trouble on two consecutive Mars legs. Right (the haul feels long) or nagging. One constant: `encounterChance`'s `0.08`/month. |
